@@ -23,7 +23,8 @@ from components.plots import (
     creer_graphique_fc_pente, 
     creer_graphique_ratio_vitesse_fc, 
     creer_graphique_comparaison,
-    display_map
+    display_map,
+    creer_analyse_segment_personnalisee
 )
 
 
@@ -369,6 +370,7 @@ def analyse_page():
                 key="segment_slider"
             )
             analyze_segment_selection(df_filtre, start_km, end_km)
+            creer_analyse_segment_personnalisee(df_filtre, start_km, end_km)
 
         st.markdown("---")
         
