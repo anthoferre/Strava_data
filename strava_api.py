@@ -114,7 +114,7 @@ def get_activity_data_from_api(activity_id):
         return pd.DataFrame(), activity_name, sport_type
         
     # Récupération des streams
-    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence']
+    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth']
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {
         'access_token': access_token,
@@ -135,7 +135,8 @@ def get_activity_data_from_api(activity_id):
         'latlng': data.get('latlng', {}).get('data'), # Coordonnées GPS
         'frequence_cardiaque': data.get('heartrate', {}).get('data'),
         'puissance_watts': data.get('watts', {}).get('data'), # Puissance (watts)
-        'cadence': data.get('cadence', {}).get('data') # Cadence (RPM ou SPM)
+        'cadence': data.get('cadence', {}).get('data'), # Cadence (RPM ou SPM)
+        'pente': data.get('grade_smooth', {}).get('data') # pente lissée
     })
     
     if df.empty or 'temps_relatif_sec' not in df.columns:

@@ -20,10 +20,10 @@ def format_allure_std(std):
 
 # --- Définition des Variables Disponibles pour l'analyse personnalisée ---
 METRICS_MAP = {
-    'allure_lisse_corrigee': "Allure (min/km)",
+    'allure_min_km': "Allure (min/km)",
     'vitesse_kmh': "Vitesse (km/h)",
-    'fc_lisse': "Fréquence Cardiaque (bpm)",
-    'pente_lisse': "Pente (°)",
+    'frequence_cardiaque': "Fréquence Cardiaque (bpm)",
+    'pente': "Pente (°)",
     'altitude_m': "Altitude (m)",
 }
 
@@ -99,19 +99,19 @@ def creer_graphique_interactif(df, title, key=None):
     fig.add_trace(go.Scatter(x=df['distance_km'], y=df['altitude_m'], mode='lines', name='Altitude', line=dict(color='blue'), yaxis='y'))
     
     # Axe Y pour l'Allure (Y-axis 2)
-    if 'allure_lisse_corrigee' in df.columns and df['allure_lisse_corrigee'].any():
+    if 'allure_min_km' in df.columns and df['allure_min_km'].any():
         axis_name_trace = f'y{axis_count + 1}'
         axis_name_layout = f'yaxis{axis_count + 1}'
-        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['allure_lisse_corrigee'], mode='lines', name='Allure Brute', yaxis=axis_name_trace, line=dict(color='green', dash='dot')))
+        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['allure_min_km'], mode='lines', name='Allure Brute', yaxis=axis_name_trace, line=dict(color='green', dash='dot')))
         axes_definitions[axis_name_layout] = dict(title=dict(text='Allure (min/km)', font=dict(color='green')), tickfont=dict(color='green'), overlaying='y', side='right', anchor='x')
         axis_count += 1
         
     
     # Axe Y pour la Fréquence Cardiaque (Y-axis 3)
-    if 'fc_lisse' in df.columns and df['fc_lisse'].any():
+    if 'frequence_cardiaque' in df.columns and df['frequence_cardiaque'].any():
         axis_name_trace = f'y{axis_count + 1}'
         axis_name_layout = f'yaxis{axis_count + 1}'
-        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['fc_lisse'], mode='lines', name='Fréquence Cardiaque', yaxis=axis_name_trace, line=dict(color='pink')))
+        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['frequence_cardiaque'], mode='lines', name='Fréquence Cardiaque', yaxis=axis_name_trace, line=dict(color='pink')))
         
         axes_definitions[axis_name_layout] = dict(
             title=dict(text='FC (bpm)', font=dict(color='pink')), 
@@ -156,26 +156,26 @@ def creer_graphique_allure_pente(df, title="Distribution de l'Allure vs Pente (B
     
     # --- 1. Filtrage et Préparation des données ---
     df_filtered = df[
-        (df['allure_lisse_corrigee'] < 20) & 
-        (df['allure_lisse_corrigee'] > 0) & 
-        (df['pente_lisse'].abs() < 30)
-    ].dropna(subset=['pente_lisse', 'allure_lisse_corrigee']).copy()
+        (df['allure_min_km'] < 50) & 
+        (df['allure_min_km'] > 0) & 
+        (df['pente'].abs() < 30)
+    ].dropna(subset=['pente', 'allure_min_km']).copy()
     
     if df_filtered.empty: 
         st.info("Après filtrage, données insuffisantes pour créer le graphique Box Plot."); 
         return
         
-    df_filtered['pente_arrondie'] = df_filtered['pente_lisse'].round().astype(int).astype(str)
+    df_filtered['pente_arrondie'] = df_filtered['pente'].round().astype(int).astype(str)
     
     # --- 2. Création du Box Plot avec Plotly Express ---
     fig = px.box(
         df_filtered, 
         x='pente_arrondie', 
-        y='allure_lisse_corrigee', 
+        y='allure_min_km', 
         title=title, 
         labels={
             'pente_arrondie': 'Pente Arrondie (%)', 
-            'allure_lisse_corrigee': 'Allure (min/km)'
+            'allure_min_km': 'Allure (min/km)'
         },
         points='outliers',
         notched=True
@@ -200,10 +200,10 @@ def creer_graphique_vam(df, title="VAM vs Pente"):
         return
         
     st.subheader(title)
-    df_montées = df[(df['pente_lisse'] > 2) & (df['pente_lisse'] < 30) & (df['allure_lisse_corrigee'] > 0)].copy()
+    df_montées = df[(df['pente'] > 2) & (df['allure_min_km'] > 0)].copy()
     if not df_montées.empty:
-        df_montées['delta_altitude'] = df_montées['altitude_m'].diff().fillna(0)
-        df_montées['temps_diff_seconds'] = df_montées['temps'].diff().dt.total_seconds().replace(0, np.nan).fillna(1)
+        df_montées['delta_altitude'] = df_montées['altitude_m'].diff(periods = 5).fillna(0)
+        df_montées['temps_diff_seconds'] = df_montées['temps'].diff(periods = 5).dt.total_seconds().replace(0, np.nan).fillna(1)
         
         # Filtre de temps : VAM n'a de sens que sur les segments où il y a eu une durée
         df_montées = df_montées[df_montées['temps_diff_seconds'] > 1]
@@ -215,7 +215,7 @@ def creer_graphique_vam(df, title="VAM vs Pente"):
              st.info("Aucune donnée de montée significative (VAM > 0) pour l'analyse VAM après filtrage.")
              return
 
-        df_montées['pente_arrondie'] = df_montées['pente_lisse'].round().astype(int)
+        df_montées['pente_arrondie'] = df_montées['pente'].round().astype(int)
         grouped_vam = df_montées.groupby('pente_arrondie').agg(
             vam_moyenne=('vam_calculée', 'mean'),
             vam_std=('vam_calculée', 'std')
@@ -239,19 +239,19 @@ def creer_graphique_fc_pente(df, title="FC vs Pente"):
     """Crée le graphique de Fréquence Cardiaque (FC) moyenne par Pente."""
     # (Le code de cette fonction reste inchangé)
     # ... (omission pour concision)
-    if df is None or df.empty or 'fc_lisse' not in df.columns or df['fc_lisse'].isnull().all():
+    if df is None or df.empty or 'frequence_cardiaque' not in df.columns or df['frequence_cardiaque'].isnull().all():
         st.warning("Impossible d'effectuer l'analyse de la FC : données manquantes.")
         return
         
     st.subheader(title)
-    df_fc = df[(df['fc_lisse'] > 0) & (df['pente_lisse'].abs() < 30)].copy()
+    df_fc = df[(df['frequence_cardiaque'] > 0) & (df['pente'].abs() < 30)].copy()
     if not df_fc.empty:
-        df_fc['pente_arrondie'] = df_fc['pente_lisse'].round().astype(int)
+        df_fc['pente_arrondie'] = df_fc['pente'].round().astype(int)
         df_fc['poids_temporel'] = df_fc['temps'].diff().dt.total_seconds().fillna(0)
         
         grouped_fc = df_fc.groupby('pente_arrondie').apply(lambda x: pd.Series({
-            'fc_moyenne': (x['fc_lisse'] * x['poids_temporel']).sum() / x['poids_temporel'].sum(),
-            'fc_std': np.std(x['fc_lisse'])
+            'fc_moyenne': (x['frequence_cardiaque'] * x['poids_temporel']).sum() / x['poids_temporel'].sum(),
+            'fc_std': np.std(x['frequence_cardiaque'])
         }) if x['poids_temporel'].sum() > 0 else pd.Series({'fc_moyenne': np.nan, 'fc_std': np.nan})).reset_index()
         
         grouped_fc.dropna(subset=['fc_moyenne'], inplace=True)
@@ -274,15 +274,15 @@ def creer_graphique_ratio_vitesse_fc(df, title="Efficacité de foulée"):
     """Crée le graphique du ratio Vitesse/FC par Pente."""
     # (Le code de cette fonction reste inchangé)
     # ... (omission pour concision)
-    if df is None or df.empty or 'vitesse_kmh' not in df.columns or 'fc_lisse' not in df.columns or df['fc_lisse'].isnull().all() or df['vitesse_kmh'].isnull().all():
+    if df is None or df.empty or 'vitesse_kmh' not in df.columns or 'frequence_cardiaque' not in df.columns or df['frequence_cardiaque'].isnull().all() or df['vitesse_kmh'].isnull().all():
         st.warning("Impossible de calculer l'efficacité de la foulée : données manquantes.")
         return
         
     st.subheader(title)
-    df_foulée = df[(df['vitesse_kmh'] > 0) & (df['fc_lisse'] > 0) & (df['pente_lisse'].abs() < 30)].copy()
+    df_foulée = df[(df['vitesse_kmh'] > 0) & (df['frequence_cardiaque'] > 0) & (df['pente'].abs() < 30)].copy()
     if not df_foulée.empty:
-        df_foulée['ratio_vitesse_fc'] = df_foulée['vitesse_kmh'] / df_foulée['fc_lisse']
-        df_foulée['pente_arrondie'] = df_foulée['pente_lisse'].round().astype(int)
+        df_foulée['ratio_vitesse_fc'] = df_foulée['vitesse_kmh'] / df_foulée['frequence_cardiaque']
+        df_foulée['pente_arrondie'] = df_foulée['pente'].round().astype(int)
         df_foulée['poids_temporel'] = df_foulée['temps'].diff().dt.total_seconds().fillna(0)
         
         grouped_ratio = df_foulée.groupby('pente_arrondie').apply(lambda x: pd.Series({
@@ -316,7 +316,7 @@ def creer_graphique_comparaison(df1, name1, df2, name2, variable, y_title):
     if df2 is not None and not df2.empty:
         fig.add_trace(go.Scatter(x=df2['distance_km'], y=df2[variable], mode='lines', name=name2, line=dict(dash='dash', width=3)))
     
-    if variable == 'allure_lisse_corrigee':
+    if variable == 'allure_min_km':
         fig.update_yaxes(autorange="reversed")
         
     fig.update_layout(title=f"Comparaison de **{y_title}** en fonction de la distance", xaxis_title="Distance (km)", yaxis_title=y_title, height=500)
@@ -348,7 +348,7 @@ def creer_analyse_segment_personnalisee(df, start_km, end_km):
             key="segment_var_select"
         )
         variable_titre = METRICS_MAP.get(variable_choisie, variable_choisie)
-
+    with col_graph:
         # Choix du Type de Graphique
         type_graphique = st.radio(
             "2. Type de Visualisation :",
@@ -356,15 +356,16 @@ def creer_analyse_segment_personnalisee(df, start_km, end_km):
             key="segment_graph_type"
         )
         
-    with col_graph:
-        # Sélecteur de Segment (Distance)
-        if 'distance_km' not in df.columns:
-            st.warning("Colonne 'distance_km' manquante pour la sélection de segment.")
-            return
+    
+    # Sélecteur de Segment (Distance)
+    if 'distance_km' not in df.columns:
+        st.warning("Colonne 'distance_km' manquante pour la sélection de segment.")
+        return
 
     
     
     # 2. Filtrage des Données
+    st.dataframe(df.head())
     df_segment = df[
         (df['distance_km'] >= start_km) & 
         (df['distance_km'] <= end_km)
@@ -386,7 +387,7 @@ def creer_analyse_segment_personnalisee(df, start_km, end_km):
             title=f"Évolution de la {variable_titre} sur le segment",
             labels={'distance_km': 'Distance (km)', variable_choisie: variable_titre}
         )
-        if variable_choisie in ['allure_lisse_corrigee']:
+        if variable_choisie in ['allure_min_km']:
             fig.update_yaxes(autorange="reversed")
         
     elif type_graphique == 'Distribution (Histogramme)':
@@ -406,7 +407,7 @@ def creer_analyse_segment_personnalisee(df, start_km, end_km):
 
         
     
-        if variable_choisie in ['allure_lisse_corrigee']:
+        if variable_choisie in ['allure_min_km']:
             fig.update_yaxes(autorange="reversed")
 
     else:

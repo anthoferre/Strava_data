@@ -97,6 +97,8 @@ def load_activity_from_db(activity_id):
         start_date_display = activity_start_date.split('T')[0] if activity_start_date else 'Inconnue'
         st.sidebar.success(f"Cache DB : Activité **{activity_name}** chargée (Début: {start_date_display}).")
         return df, activity_name, sport_type
+    
+    
     return None, None, None
 
 @st.cache_data
@@ -128,7 +130,7 @@ def extract_metrics_from_cache(df_cache_in):
                 'date': date_activity,
                 'distance_km': row['total_distance_km'],
                 'duree_h': row['total_duration_h'],
-                'denivele_positif_m': row['total_elevation_gain_m'],
+                'denivele_positif_m': row['total_elevation_gain_m']
             })
         except Exception as e:
             # st.error(f"Erreur lors de l'extraction de l'activité {row['activity_id']}: {e}")

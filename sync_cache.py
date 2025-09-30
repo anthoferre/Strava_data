@@ -33,7 +33,7 @@ DB_PATH = os.getenv("DB_PATH", "strava_cache.db")
 
 # LIMITE POUR L'EXÉCUTION DU CACHE : Limite le nombre d'activités détaillées téléchargées par exécution
 # Ceci permet de respecter la limite de l'API Strava (900 requêtes / 15 minutes)
-MAX_ACTIVITIES_TO_CACHE_PER_RUN = 100 
+MAX_ACTIVITIES_TO_CACHE_PER_RUN = 1
 # Limite pour la récupération de la liste d'activités (on lit le maximum pour voir les nouvelles)
 MAX_ACTIVITIES_LIST = 500
 # ---------------------------------------------------------------
@@ -136,7 +136,7 @@ def get_activity_data_and_save(activity_id, access_token):
         
     # 2. Récupération des streams détaillés
     # Inclut la puissance, la cadence, et la vitesse lissée
-    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence']
+    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth']
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {
         'access_token': access_token,
@@ -158,7 +158,8 @@ def get_activity_data_and_save(activity_id, access_token):
         'latlng': data.get('latlng', {}).get('data'), # Coordonnées GPS
         'frequence_cardiaque': data.get('heartrate', {}).get('data'),
         'puissance_watts': data.get('watts', {}).get('data'), # Puissance (watts)
-        'cadence': data.get('cadence', {}).get('data') # Cadence (RPM ou SPM)
+        'cadence': data.get('cadence', {}).get('data'),
+        'pente': data.get('grade_smooth', {}).get('data') # pente lissée # Cadence (RPM ou SPM)
     })
     
     if df.empty or 'temps_relatif_sec' not in df.columns or df['temps_relatif_sec'].isnull().all():

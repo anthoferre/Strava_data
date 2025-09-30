@@ -60,9 +60,9 @@ def afficher_graphique(graph_name, df, df2=None, name1="", name2=""):
     elif graph_name == "Impact de la fatigue":
         impact_fatigue(df)
     elif graph_name == "Comparaison d'Allure":
-        creer_graphique_comparaison(df, name1, df2, name2, 'allure_lisse_corrigee', 'Allure (min/km)')
+        creer_graphique_comparaison(df, name1, df2, name2, 'allure_min_km', 'Allure (min/km)')
     elif graph_name == "Comparaison de FC":
-        creer_graphique_comparaison(df, name1, df2, name2, 'fc_lisse', 'Fréquence Cardiaque (bpm)')
+        creer_graphique_comparaison(df, name1, df2, name2, 'frequence_cardiaque', 'Fréquence Cardiaque (bpm)')
 
 
 def impact_fatigue(df, title="Impact de la fatigue"):
@@ -71,12 +71,12 @@ def impact_fatigue(df, title="Impact de la fatigue"):
     if not df.empty and 'distance_km' in df.columns:
         moitié_parcours = df['distance_km'].iloc[-1] / 2
         
-        df_premiere_moitie = df[df['distance_km'] <= moitié_parcours].dropna(subset=['allure_lisse_corrigee'])
-        df_seconde_moitie = df[df['distance_km'] > moitié_parcours].dropna(subset=['allure_lisse_corrigee'])
+        df_premiere_moitie = df[df['distance_km'] <= moitié_parcours].dropna(subset=['allure_min_km'])
+        df_seconde_moitie = df[df['distance_km'] > moitié_parcours].dropna(subset=['allure_min_km'])
         
         if len(df_premiere_moitie) > 1 and len(df_seconde_moitie) > 1:
-            cv_premiere_moitie = np.std(df_premiere_moitie['allure_lisse_corrigee']) / np.mean(df_premiere_moitie['allure_lisse_corrigee'])
-            cv_seconde_moitie = np.std(df_seconde_moitie['allure_lisse_corrigee']) / np.mean(df_seconde_moitie['allure_lisse_corrigee'])
+            cv_premiere_moitie = np.std(df_premiere_moitie['allure_min_km']) / np.mean(df_premiere_moitie['allure_min_km'])
+            cv_seconde_moitie = np.std(df_seconde_moitie['allure_min_km']) / np.mean(df_seconde_moitie['allure_min_km'])
             
             col1, col2 = st.columns(2)
             with col1:
@@ -116,12 +116,11 @@ def analyze_segment_selection(df, start_km, end_km):
     denivele_positif = segment_df['altitude_m'].diff().clip(lower=0).sum().round(0)
     denivele_negatif = segment_df['altitude_m'].diff().clip(upper=0).sum().round(0) * -1
     
-    allure_moyenne = segment_df['allure_lisse_corrigee'].mean()
-    allure_std = segment_df['allure_lisse_corrigee'].std()
+    allure_moyenne = segment_df['allure_min_km'].mean()
+    allure_std = segment_df['allure_min_km'].std()
     
-    fc_moyenne = segment_df['fc_lisse'].mean() if 'fc_lisse' in segment_df.columns and not segment_df['fc_lisse'].isnull().all() else None
-    fc_std = segment_df['fc_lisse'].std() if 'fc_lisse' in segment_df.columns and not segment_df['fc_lisse'].isnull().all() else None
-    
+    fc_moyenne = segment_df['frequence_cardiaque'].mean() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
+    fc_std = segment_df['frequence_cardiaque'].std() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         display_metric_card("Distance", f"{distance_segment:.2f} km", "📏")
@@ -229,16 +228,8 @@ def analyse_page():
     elif selected_option2 != 'Ne pas comparer' and activity_options2[selected_option2] is not None:
         activity_id_input2 = activity_options2[selected_option2]
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Paramètres de Traitement")
-    
-    col_lissage1, col_lissage2 = st.sidebar.columns(2)
-    with col_lissage1:
-        window_size = st.slider("Lissage Allure (points)", min_value=1, max_value=50, value=10, step=1, key="main_window_size")
-    with col_lissage2:
-        window_size_fc = st.slider("Lissage FC (points)", min_value=1, max_value=50, value=5, step=1, key="main_window_size_fc")
-        
-    trim_seconds = st.sidebar.slider("Durée à supprimer au début (secondes)", min_value=0, max_value=600, value=60, step=10)
+    st.sidebar.markdown("---")   
+ 
     
     # Bouton de chargement (déclenche le processus)
     st.sidebar.markdown("---")
@@ -286,7 +277,7 @@ def analyse_page():
             st.warning(f"L'activité **'{st.session_state.get('activity_name1', 'N/A')}'** n'a pas de données de stream ou est manuelle. Elle ne peut pas être analysée.")
             return
 
-        df_result1 = process_data(st.session_state['df_raw1'].copy(), window_size, trim_seconds, window_size_fc)
+        df_result1 = process_data(st.session_state['df_raw1'].copy())
         if df_result1 is None:
             st.warning("Le traitement des données de l'activité 1 a échoué. Veuillez vérifier les données de l'activité ou les paramètres de lissage.")
             return
@@ -317,8 +308,8 @@ def analyse_page():
             denivele_negatif = df_filtre['altitude_m'].diff().clip(upper=0).sum().round(0) * -1
             
             # Allure moyenne (brute et GAP)
-            allure_moyenne = df_filtre['allure_lisse_corrigee'].mean()
-            allure_std = df_filtre['allure_lisse_corrigee'].std()
+            allure_moyenne = df_filtre['allure_min_km'].mean()
+            allure_std = df_filtre['allure_min_km'].std()
             
             with col1:
                 display_metric_card("Distance", f"{df_filtre['distance_km'].iloc[-1]:.1f} km", "📏")
@@ -337,9 +328,9 @@ def analyse_page():
                     display_metric_card("Vitesse moyenne",f"{vitesse_moyenne} km/h", "🚴‍♂️")
 
             if sport_type != 'Ride':
-                if 'fc_lisse' in df_filtre.columns and not df_filtre['fc_lisse'].isnull().all():
-                    fc_moyenne = df_filtre['fc_lisse'].mean()
-                    fc_std = df_filtre['fc_lisse'].std()
+                if 'frequence_cardiaque' in df_filtre.columns and not df_filtre['frequence_cardiaque'].isnull().all():
+                    fc_moyenne = df_filtre['frequence_cardiaque'].mean()
+                    fc_std = df_filtre['frequence_cardiaque'].std()
                     with col5:
                         display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
                 else:
@@ -361,14 +352,25 @@ def analyse_page():
         # --- Analyse de segment avec curseurs (Inchangée) ---
         with st.expander("🔍 Analyse de Segment Spécifique", expanded=False):
             max_km = df_filtre['distance_km'].max()
-            start_km, end_km = st.slider(
-                "Sélectionnez les distances de début et de fin (km)",
-                min_value=0.0,
-                max_value=max_km,
-                value=(0.0, max_km),
-                step=0.1,
-                key="segment_slider"
-            )
+            col1,col2 = st.columns(2)
+            with col1:
+                start_km = st.number_input(
+                    "Sélectionnez le début du segment",
+                    min_value=0.00,
+                    max_value=max_km,
+                    value= 0.00,
+                    step=0.01,
+                    key="start_segment"
+                )
+            with col2:
+                end_km = st.number_input(
+                    "Sélectionnez la fin du segment",
+                    min_value=0.00,
+                    max_value=max_km,
+                    value= max_km,
+                    step=0.01,
+                    key="end_segment"
+                )
             analyze_segment_selection(df_filtre, start_km, end_km)
             creer_analyse_segment_personnalisee(df_filtre, start_km, end_km)
 
@@ -377,7 +379,7 @@ def analyse_page():
         # --- Logique de comparaison (Inchangée) ---
         if 'df_raw2' in st.session_state and st.session_state['df_raw2'] is not None and not st.session_state['df_raw2'].empty:
             
-            df_result2 = process_data(st.session_state['df_raw2'].copy(), window_size, trim_seconds, window_size_fc)
+            df_result2 = process_data(st.session_state['df_raw2'].copy())
             
             if df_result2 is not None:
                 with st.expander("📊 Comparaison d'Activités", expanded=True):
@@ -432,8 +434,8 @@ def progression_page():
 
     # Préparation des données pour le regroupement
     df_progression['date'] = pd.to_datetime(df_progression['date'], errors='coerce') 
-    df_progression = df_progression.dropna(subset=['date']) 
-    
+    df_progression = df_progression.dropna(subset=['date'])
+      
     # --- FILTRES DE PÉRIODE ET DE TYPE ---
     st.header("Filtres")
     col_f1, col_f2 = st.columns(2)
