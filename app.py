@@ -289,6 +289,22 @@ def analyse_page():
             allure_vap_moy = df_filtre['allure_vap'].mean()
             allure_vap_std = df_filtre['allure_vap'].std()
 
+            FC_MAX = 200
+
+            # Vitesse maximale en VAP (exemple: 3:20 min/km = 18 km/h).
+            MAX_VAP_KMH = 20 
+
+            # Efficacité maximale (Vitesse VAP / FC) que l'athlète peut atteindre sur une course rapide.
+            # Exemple: 18 km/h pour 180 bpm = 0.1
+            MAX_EFFICACITE = 0.1 
+
+            # Score d'Effort
+            normalized_vap = min(df_filtre['vitesse_kmh_vap'].mean() / MAX_VAP_KMH, 1.0)
+            score_effort = normalized_vap * (temps_total_sec / 3600) * 100
+
+            normalized_efficacite = min(efficacite_moy_vap / MAX_EFFICACITE, 1.0)
+            score_effort_efficacite = normalized_efficacite *  (temps_total_sec / 3600) * 100
+
 
             
             with col1:
