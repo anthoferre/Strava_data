@@ -33,7 +33,7 @@ DB_PATH = os.getenv("DB_PATH", "strava_cache.db")
 
 # LIMITE POUR L'EXÉCUTION DU CACHE : Limite le nombre d'activités détaillées téléchargées par exécution
 # Ceci permet de respecter la limite de l'API Strava (900 requêtes / 15 minutes)
-MAX_ACTIVITIES_TO_CACHE_PER_RUN = 1
+MAX_ACTIVITIES_TO_CACHE_PER_RUN = 100
 # Limite pour la récupération de la liste d'activités (on lit le maximum pour voir les nouvelles)
 MAX_ACTIVITIES_LIST = 500
 # ---------------------------------------------------------------
@@ -121,6 +121,7 @@ def get_activity_data_and_save(activity_id, access_token):
     if response_details.status_code == 200:
         activity_details = response_details.json()
         activity_name = activity_details.get('name', activity_name)
+        activity_id = activity_details.get('id', activity_id)
         sport_type = activity_details.get('sport_type')
         activity_start_date = activity_details.get('start_date_local')
         has_streams = activity_details.get('has_heartrate', False) or activity_details.get('has_latlng', False)

@@ -7,6 +7,8 @@ from scipy.signal import savgol_filter
 # Importation de l'utilitaire de formatage (déplacé dans components/utils.py)
 from components.utils import format_allure
 
+
+
 # --- Paramètres de Nettoyage ---
 # Allure maximale tolérée. Au-delà, c'est considéré comme une erreur ou un arrêt.
 ALLURE_MAX_ACCEPTABLE = 45.0  # min/km (Ex: 20 min/km = 3 km/h, vitesse de marche très lente)
