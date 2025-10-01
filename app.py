@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 # NOTE: Ces imports nécessitent que les fichiers correspondants existent dans votre environnement.
 from db_manager import init_db, get_db_connection, extract_metrics_from_cache
 from strava_api import get_last_activity_ids, get_activity_data_from_api
-from data_processor import process_data
+from data_processor import process_data, calculate_vap
 from components.utils import display_metric_card, format_allure, format_allure_std
 from components.plots import (
     creer_graphique_interactif, 
@@ -118,6 +118,9 @@ def analyze_segment_selection(df, start_km, end_km):
     
     allure_moyenne = segment_df['allure_min_km'].mean()
     allure_std = segment_df['allure_min_km'].std()
+
+    allure_vap_moy = segment_df['allure_vap'].mean()
+    allure_vap_std = segment_df['allure_vap'].std()
     
     fc_moyenne = segment_df['frequence_cardiaque'].mean() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
     fc_std = segment_df['frequence_cardiaque'].std() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
@@ -130,11 +133,11 @@ def analyze_segment_selection(df, start_km, end_km):
         display_metric_card("Dénivelé", f"""📈{denivele_positif:.0f} m 
                                      \n 📉{abs(denivele_negatif):.0f} m""", "⛰️")
     with col4:
-        if not pd.isna(allure_moyenne):
-            sub_value_gap = f"± {format_allure(allure_std)}"
-            display_metric_card("Allure moyenne", format_allure(allure_moyenne), "👟", sub_value=sub_value_gap)
+        if not pd.isna(allure_vap_moy):
+            sub_value_gap = f"± {format_allure(allure_vap_std)}"
+            display_metric_card("Allure VAP moyenne", format_allure(allure_vap_moy), "👟", sub_value=sub_value_gap)
         else:
-            display_metric_card("Allure moyenne", "N/A", "👟")
+            display_metric_card("Allure VAP moyenne", "N/A", "👟")
     with col5:
         if fc_moyenne is not None and not pd.isna(fc_moyenne):
             display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
@@ -214,21 +217,7 @@ def analyse_page():
     else:
         activity_id_input1 = activity_options[selected_option]
         
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Optionnel : 2ème Activité (Comparaison)")
     
-    activity_options2 = {f"{act['name']} ({act['id']})": act['id'] for act in recent_activities if act['id'] != activity_id_input1}
-    activity_options2 = {'Ne pas comparer': None, 'Saisir un autre ID': 'manual'} | activity_options2
-    
-    selected_option2 = st.sidebar.selectbox("Sélectionnez une activité récente (2) :", list(activity_options2.keys()), key="select_act_2")
-    
-    activity_id_input2 = None
-    if selected_option2 == 'Saisir un autre ID':
-        activity_id_input2 = st.sidebar.text_input("Entrez l'ID de l'activité (2)", '', key="input_act_2")
-    elif selected_option2 != 'Ne pas comparer' and activity_options2[selected_option2] is not None:
-        activity_id_input2 = activity_options2[selected_option2]
-
-    st.sidebar.markdown("---")   
  
     
     # Bouton de chargement (déclenche le processus)
@@ -251,26 +240,7 @@ def analyse_page():
             st.error("L'ID de la première activité doit être un nombre entier.")
             return
 
-        # 2. Traitement de l'activité 2 (si fournie)
-        st.session_state['df_raw2'] = None
-        st.session_state['activity_name2'] = None
-        
-        if activity_id_input2 and activity_id_input2 != 'manual':
-            try:
-                activity_id2 = int(activity_id_input2)
-                with st.spinner(f"Chargement de l'activité **{activity_id2}** pour comparaison..."):
-                    df_raw2, activity_name2, sport_type2 = get_activity_data_from_api(activity_id2)
-                    st.session_state['df_raw2'] = df_raw2
-                    st.session_state['activity_name2'] = activity_name2
-                    st.session_state['sport_type2'] = sport_type2
-            except ValueError:
-                st.error("L'ID de la deuxième activité doit être un nombre entier.")
-                return
-        
-        st.success("Chargement terminé. Analyse des données en cours...")
-        st.rerun()
-
-    # --- Affichage des résultats ---
+        # --- Affichage des résultats ---
     if 'df_raw1' in st.session_state and st.session_state['df_raw1'] is not None:
         
         if st.session_state['df_raw1'].empty:
@@ -296,7 +266,7 @@ def analyse_page():
 
         # --- Résumé de l'activité (Inchangé) ---
         st.subheader("Résumé de l'activité")
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         if 'temps_relatif_sec' in df_filtre.columns and not df_filtre['temps_relatif_sec'].empty:
             
@@ -310,6 +280,16 @@ def analyse_page():
             # Allure moyenne (brute et GAP)
             allure_moyenne = df_filtre['allure_min_km'].mean()
             allure_std = df_filtre['allure_min_km'].std()
+
+            # Efficacité
+            efficacite_moy_vap = df_filtre['efficacite_course_vap'].mean()
+            efficacite_std_vap = df_filtre['efficacite_course_vap'].std()
+
+            # Allure vap
+            allure_vap_moy = df_filtre['allure_vap'].mean()
+            allure_vap_std = df_filtre['allure_vap'].std()
+
+
             
             with col1:
                 display_metric_card("Distance", f"{df_filtre['distance_km'].iloc[-1]:.1f} km", "📏")
@@ -321,27 +301,26 @@ def analyse_page():
             with col4:
                 if sport_type != 'Ride':
                     # Affichage de l'allure moyenne et du GAP juste en dessous
-                    sub_value_gap = f"± {format_allure(allure_std)}"
-                    display_metric_card("Allure moyenne", format_allure(allure_moyenne), "👟", sub_value=sub_value_gap)
+                    sub_value_gap = f"± {format_allure(allure_vap_std)}"
+                    display_metric_card("Allure VAP moyenne", format_allure(allure_vap_moy), "👟", sub_value=sub_value_gap)
                 else :
                     vitesse_moyenne = np.round(df_filtre['distance_km'].iloc[-1] / temps_total_h,1)
                     display_metric_card("Vitesse moyenne",f"{vitesse_moyenne} km/h", "🚴‍♂️")
 
-            if sport_type != 'Ride':
+            with col5:
                 if 'frequence_cardiaque' in df_filtre.columns and not df_filtre['frequence_cardiaque'].isnull().all():
                     fc_moyenne = df_filtre['frequence_cardiaque'].mean()
                     fc_std = df_filtre['frequence_cardiaque'].std()
-                    with col5:
-                        display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
+                    display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
                 else:
                     with col5:
                         display_metric_card("FC moyenne", "N/A", "💔")
-
-            else:
-                with col5:
+                    
+            with col6:
+                if sport_type != 'Ride':
+                    display_metric_card("Efficacité", f"{efficacite_moy_vap:0.03}","⏱️", sub_value = f"± {efficacite_std_vap:0.03}" )
+                else:
                     display_metric_card("Puissance moyenne", f"{np.mean(st.session_state['df_raw1']['puissance_watts']):.0f} watts", "❤️")
-
-
         st.subheader("Profil d'Activité Complet")
         
         # Sélecteur pour afficher ou non le GAP
@@ -373,22 +352,6 @@ def analyse_page():
                 )
             analyze_segment_selection(df_filtre, start_km, end_km)
             creer_analyse_segment_personnalisee(df_filtre, start_km, end_km)
-
-        st.markdown("---")
-        
-        # --- Logique de comparaison (Inchangée) ---
-        if 'df_raw2' in st.session_state and st.session_state['df_raw2'] is not None and not st.session_state['df_raw2'].empty:
-            
-            df_result2 = process_data(st.session_state['df_raw2'].copy())
-            
-            if df_result2 is not None:
-                with st.expander("📊 Comparaison d'Activités", expanded=True):
-                    st.header("Comparaison : Allure et FC")
-                    st.info(f"Comparaison entre **{st.session_state['activity_name1']}** ({sport_type}) et **{st.session_state['activity_name2']}** ({st.session_state.get('sport_type2', 'N/A')})")
-                    
-                    comparaison_type = st.selectbox("Type de comparaison :", ("Comparaison d'Allure", "Comparaison de FC"), key="comp_type_select")
-                    
-                    afficher_graphique(comparaison_type, df_filtre, df_result2, st.session_state['activity_name1'], st.session_state['activity_name2'])
 
         st.markdown("---")
 
@@ -480,7 +443,7 @@ def progression_page():
     # --- 1. Statistiques Générales Cumulées (Période Filtrée) ---
     st.header(f"Statistiques Cumulées ({periode_choisie} - {sport_choisi})")
     
-    total_distance = df_final['distance_km'].sum()
+    total_distance = df_final['efficacite_course_moy'].sum()
     total_denivele = df_final['denivele_positif_m'].sum()
     
     # Calcul de la tendance (exemple simple : comparaison à la première moitié de la période)
@@ -491,7 +454,7 @@ def progression_page():
     with col_a:
         display_metric_card("Total Activités", f"{len(df_final):.0f}", "🔢")
     with col_b:
-        display_metric_card("Distance Totale", f"{total_distance:,.1f} km", "🌍")
+        display_metric_card("Distance Totale", f"{total_distance:,.0f} km", "🌍")
     with col_c:
         display_metric_card("Dénivelé Total", f"{total_denivele:,.0f} m", "🏔️")
 

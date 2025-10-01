@@ -21,7 +21,8 @@ def format_allure_std(std):
 # --- Définition des Variables Disponibles pour l'analyse personnalisée ---
 METRICS_MAP = {
     'allure_min_km': "Allure (min/km)",
-    'vitesse_kmh': "Vitesse (km/h)",
+    'allure_vap': "Allure VAP (min/km)",
+    'efficacite_course_vap' : "Efficacité de Course VAP (Vit/FC)",
     'frequence_cardiaque': "Fréquence Cardiaque (bpm)",
     'pente': "Pente (°)",
     'altitude_m': "Altitude (m)",
@@ -102,7 +103,7 @@ def creer_graphique_interactif(df, title, key=None):
     if 'allure_min_km' in df.columns and df['allure_min_km'].any():
         axis_name_trace = f'y{axis_count + 1}'
         axis_name_layout = f'yaxis{axis_count + 1}'
-        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['allure_min_km'], mode='lines', name='Allure Brute', yaxis=axis_name_trace, line=dict(color='green', dash='dot')))
+        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['allure_min_km'], mode='lines', name='Allure', yaxis=axis_name_trace, line=dict(color='green', dash='dot')))
         axes_definitions[axis_name_layout] = dict(title=dict(text='Allure (min/km)', font=dict(color='green')), tickfont=dict(color='green'), overlaying='y', side='right', anchor='x')
         axis_count += 1
         
@@ -111,7 +112,7 @@ def creer_graphique_interactif(df, title, key=None):
     if 'frequence_cardiaque' in df.columns and df['frequence_cardiaque'].any():
         axis_name_trace = f'y{axis_count + 1}'
         axis_name_layout = f'yaxis{axis_count + 1}'
-        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['frequence_cardiaque'], mode='lines', name='Fréquence Cardiaque', yaxis=axis_name_trace, line=dict(color='pink')))
+        fig.add_trace(go.Scatter(x=df['distance_km'], y=df['allure_vap'], mode='lines', name='allure_vap', yaxis=axis_name_trace, line=dict(color='pink')))
         
         axes_definitions[axis_name_layout] = dict(
             title=dict(text='FC (bpm)', font=dict(color='pink')), 
@@ -156,7 +157,7 @@ def creer_graphique_allure_pente(df, title="Distribution de l'Allure vs Pente (B
     
     # --- 1. Filtrage et Préparation des données ---
     df_filtered = df[
-        (df['allure_min_km'] < 50) & 
+        (df['allure_min_km'] < 30) & 
         (df['allure_min_km'] > 0) & 
         (df['pente'].abs() < 30)
     ].dropna(subset=['pente', 'allure_min_km']).copy()
@@ -365,7 +366,6 @@ def creer_analyse_segment_personnalisee(df, start_km, end_km):
     
     
     # 2. Filtrage des Données
-    st.dataframe(df.head())
     df_segment = df[
         (df['distance_km'] >= start_km) & 
         (df['distance_km'] <= end_km)

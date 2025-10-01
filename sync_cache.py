@@ -136,7 +136,7 @@ def get_activity_data_and_save(activity_id, access_token):
         
     # 2. Récupération des streams détaillés
     # Inclut la puissance, la cadence, et la vitesse lissée
-    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth']
+    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth','moving','resting']
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {
         'access_token': access_token,
@@ -158,12 +158,34 @@ def get_activity_data_and_save(activity_id, access_token):
         'latlng': data.get('latlng', {}).get('data'), # Coordonnées GPS
         'frequence_cardiaque': data.get('heartrate', {}).get('data'),
         'puissance_watts': data.get('watts', {}).get('data'), # Puissance (watts)
-        'cadence': data.get('cadence', {}).get('data'),
-        'pente': data.get('grade_smooth', {}).get('data') # pente lissée # Cadence (RPM ou SPM)
+        'cadence': data.get('cadence', {}).get('data'), # Cadence (RPM ou SPM)
+        'pente': data.get('grade_smooth', {}).get('data'), # Pente lissée
+        'moving' : data.get('moving', {}).get('data'), # En mouvement
+        'resting' : data.get('resting', {}).get('data') # Au repos
     })
     
     if df.empty or 'temps_relatif_sec' not in df.columns or df['temps_relatif_sec'].isnull().all():
         return False, activity_name
+    
+    # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
+    if 'resting' in df.columns:
+        # On ne garde que les points où resting est False (ou n'est pas True)
+        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+        # supposant que l'absence d'information signifie l'absence de repos confirmé.
+        df = df[df['resting'] == False].copy()
+
+    if 'moving' in df.columns:
+        # On ne garde que les points où resting est False (ou n'est pas True)
+        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+        # supposant que l'absence d'information signifie l'absence de repos confirmé.
+        df = df[df['moving'] == True].copy()
+    
+    # Vérification après filtrage (pour les activités courtes ou avec beaucoup d'arrêts)
+    if df.empty:
+        # Si après filtrage, le DF est vide, on renvoie un DF minimal pour éviter des erreurs
+        empty_df = pd.DataFrame({'temps_relatif_sec': [0], 'distance_m': [0], 'altitude_m': [0]})
+        save_activity_to_db(activity_id, activity_name, sport_type, empty_df, activity_start_date)
+        return True, activity_name
 
     # 3. Sauvegarder dans la DB
     # *** Appel corrigé avec DB_PATH ***

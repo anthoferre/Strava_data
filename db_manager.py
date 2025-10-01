@@ -30,7 +30,8 @@ def init_db():
             activity_start_date TEXT,
             total_distance_km REAL,         -- NOUVEAU: Métrique agrégée
             total_duration_h REAL,          -- NOUVEAU: Métrique agrégée
-            total_elevation_gain_m REAL     -- NOUVEAU: Métrique agrégée
+            total_elevation_gain_m REAL,     -- NOUVEAU: Métrique agrégée
+            efficacite_course_vit_fc REAL
         )
     ''')
     conn.commit()
@@ -68,6 +69,7 @@ def save_activity_to_db(activity_id, activity_name, sport_type, df, activity_sta
         total_distance_m / 1000, 
         total_duration_sec / 3600, 
         denivele_positif
+        
     ))
     conn.commit()
     
@@ -130,7 +132,8 @@ def extract_metrics_from_cache(df_cache_in):
                 'date': date_activity,
                 'distance_km': row['total_distance_km'],
                 'duree_h': row['total_duration_h'],
-                'denivele_positif_m': row['total_elevation_gain_m']
+                'denivele_positif_m': row['total_elevation_gain_m'],
+                'efficacite_course_moy': row['efficacite_course_vit_fc']
             })
         except Exception as e:
             # st.error(f"Erreur lors de l'extraction de l'activité {row['activity_id']}: {e}")
