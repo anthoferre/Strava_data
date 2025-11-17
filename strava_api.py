@@ -151,19 +151,6 @@ def get_activity_data_from_api(activity_id):
         st.warning("Aucune donnée de stream temporelle disponible pour cette activité.")
         return pd.DataFrame(), activity_name, sport_type, activity_start_date
     
-    # # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
-    # if 'resting' in df.columns:
-    #     # On ne garde que les points où resting est False (ou n'est pas True)
-    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
-    #     df = df[df['resting'] == False].copy()
-
-    # if 'moving' in df.columns:
-    #     # On ne garde que les points où resting est False (ou n'est pas True)
-    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
-    #     df = df[df['moving'] == True].copy()
-    
     # Vérification après filtrage (pour les activités courtes ou avec beaucoup d'arrêts)
     if df.empty:
         # Si après filtrage, le DF est vide, on renvoie un DF minimal pour éviter des erreurs

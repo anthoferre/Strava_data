@@ -66,8 +66,6 @@ def init_db():
     _add_missing_column(conn, 'allure_vap_moy', 'REAL')
     _add_missing_column(conn, 'score_effort', 'REAL')
     _add_missing_column(conn, 'score_effort_efficacite', 'REAL')
-    # Supprime l'ancienne colonne 'efficacite_course_vit_fc' si elle était présente dans la structure précédente.
-    # Note: SQLite ne permet pas de supprimer facilement une colonne, on la laisse si elle existe, mais on n'y touche plus.
     
     conn.commit()
 
@@ -230,6 +228,12 @@ def extract_metrics_from_cache(df_cache_in):
             continue
     
     return pd.DataFrame(data_list)
+
+def sql_df():
+    query = """SELECT * FROM activities_cache"""
+    conn = get_db_connection()
+    df_sql = pd.read_sql_query(sql=query, con=conn)
+    return df_sql
 
 def load_activity_records_by_key(activity_date, sport_type):
     """

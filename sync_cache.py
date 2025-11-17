@@ -33,7 +33,7 @@ DB_PATH = os.getenv("DB_PATH", "strava_cache.db")
 
 # LIMITE POUR L'EXÉCUTION DU CACHE : Limite le nombre d'activités détaillées téléchargées par exécution
 # Ceci permet de respecter la limite de l'API Strava (900 requêtes / 15 minutes)
-MAX_ACTIVITIES_TO_CACHE_PER_RUN = 10
+MAX_ACTIVITIES_TO_CACHE_PER_RUN = 100
 # Limite pour la récupération de la liste d'activités (on lit le maximum pour voir les nouvelles)
 MAX_ACTIVITIES_LIST = 500
 # ---------------------------------------------------------------
@@ -172,18 +172,6 @@ def get_activity_data_and_save(activity_id, access_token):
     if df.empty or 'temps_relatif_sec' not in df.columns or df['temps_relatif_sec'].isnull().all():
         return False, activity_name
     
-    # # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
-    # if 'resting' in df.columns:
-    #     # On ne garde que les points où resting est False (ou n'est pas True)
-    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
-    #     df = df[df['resting'] == False].copy()
-
-    # if 'moving' in df.columns:
-    #     # On ne garde que les points où resting est False (ou n'est pas True)
-    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
-    #     df = df[df['moving'] == True].copy()
     
     # Vérification après filtrage (pour les activités courtes ou avec beaucoup d'arrêts)
     if df.empty:
