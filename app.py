@@ -1,34 +1,14 @@
 import streamlit as st
 import pandas as pd
-import warnings
-import plotly.express as px
 import numpy as np
-from datetime import datetime, timedelta
-import calendar
-import time # Ajout pour simuler le temps de chargement si nécessaire, mais utilisé ici pour le spinner
-
-# Suppression des avertissements de pandas pour le chaînage de copies
-pd.options.mode.chained_assignment = None
-warnings.filterwarnings("ignore")
-
-# --- Importation des Modules (Assumés disponibles) ---
-# NOTE: Ces imports nécessitent que les fichiers correspondants existent dans votre environnement.
-# Les fonctions sont importées mais seront appelées via des wrappers cachés.
-from db_manager import init_db, get_db_connection, extract_metrics_from_cache, update_activity_metrics_to_db
+import seaborn as sns
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from db_manager import init_db, get_db_connection, save_performance_records, load_performance_records, init_db, load_activity_records_by_key
 from strava_api import get_last_activity_ids, get_activity_data_from_api
-from data_processor import process_data
-from components.utils import display_metric_card, format_allure, format_allure_std
-from components.plots import (
-    creer_graphique_interactif, 
-    creer_graphique_allure_pente, 
-    creer_graphique_vam, 
-    creer_graphique_fc_pente, 
-    creer_graphique_ratio_vitesse_fc, 
-    creer_graphique_comparaison,
-    display_map,
-    creer_analyse_segment_personnalisee
-)
+from scipy.stats import linregress  
 
+st.set_page_config(layout='wide')
 # --- Configuration et Initialisation des Secrets ---
 # Stocker les secrets en session state pour une vérification rapide
 if 'CLIENT_ID' not in st.session_state:
@@ -68,655 +48,747 @@ def get_activity_data_from_api_cached(activity_id):
     """Récupère et met en cache les données brutes d'une activité Strava."""
     return get_activity_data_from_api(activity_id)
 
-@st.cache_data(show_spinner="Calcul des métriques avancées...")
-def process_data_cached(df_raw):
-    """Traite les données (lissage, VAP, etc.) et les met en cache."""
-    return process_data(df_raw.copy())
+def calculate_vap(vitesse_km_h: pd.Series, pente_perc: pd.Series) -> pd.Series:
+    """Calcule la Vitesse Ajustée à la Pente (VAP)."""
+    i = pente_perc / 100
+    # Coefficients tirés d'un modèle (ex: Minetti)
+    Cr = (155.4 * (i**5) - 30.4 * (i**4) - 43.3 * (i**3) + 46.3 * (i**2) + 19.5 * i + 3.6)
+    Cout_Plat = 3.6
+    # allure_vap = allure_plate * (Coût_Plat / Coût_Pente)
+    vitesse_vap = vitesse_km_h * (Cout_Plat / Cr)
+    return vitesse_vap
 
-@st.cache_data(show_spinner="Extraction des métriques du cache DB...")
-def extract_metrics_from_cache_cached(df_cache):
-    """Extrait et traite les métriques de la DB pour le dashboard de progression."""
-    return extract_metrics_from_cache(df_cache)
+def normalisation_data(df, feature):
+        """Normalisation des données entre 0 et 100%"""
+        reset = df[feature] - df[feature].min()
+        total = df[feature].max() - df[feature].min()
+        normalisation = df[feature] / total
+        return reset, normalisation
+    
+def cutting_data_percent(df, feature, min_list=0, max_list=100, nb_bins=10):
+    """Coupe les données"""
+    step_list = (max_list - min_list) / nb_bins
+    list = [f"{i} to {i+step_list}%" for i in range(min_list,max_list,nb_bins)]
+    feature_cut = pd.cut(df[feature], bins=nb_bins, include_lowest=False, labels=list)
+    return feature_cut
 
+def allure_format(feature):
+    """Conversion de l'allure en min/km"""
+    allure = pd.Series(feature)
+    allure.fillna(value=0, inplace=True)
+    allure_s = np.round(allure % 1.0 * 60).astype(int)
+    allure_min = np.floor(allure).astype(int)
+    allure_min_str = allure_min.astype(str).str.zfill(2) # "4" -> "04"
+    allure_s_str = allure_s.astype(str).str.zfill(2)     # "5" -> "05"
+    allure_formatee = (allure_min_str.str.cat(allure_s_str, sep='.')).astype(float)
+    if allure_formatee.size == 1:
+        return (allure_min_str.str.cat(allure_s_str, sep=':')).iloc[0] # Retourne le float simple
+    else:
+        return (allure_min_str.str.cat(allure_s_str, sep='.')).astype(float) # Retourne la Série complète
 
-# --- Fonctions Logiques et Affichage (Analyse) ---
+def calculer_denivele(feature):
+    """Calculer le dénivelé positif et négatif cumulé sur la sortie"""
+    diff_altitude = feature.diff()
+    denivele_pos_instant = diff_altitude.clip(lower=0).fillna(0)
+    denivele_neg_instant = diff_altitude.clip(upper=0).fillna(0)
+    d_pos_cumule = denivele_pos_instant.cumsum().fillna(0)
+    denivele_neg_cumule = denivele_neg_instant.cumsum().fillna(0)
+    return denivele_pos_instant, denivele_neg_instant, d_pos_cumule, denivele_neg_cumule
 
-def afficher_graphique(graph_name, df, df2=None, name1="", name2=""):
-    """Appel dynamique des fonctions de graphique en fonction du nom choisi."""
-    # ... (Le corps de cette fonction reste le même)
-    if graph_name == "Allure vs Pente":
-        creer_graphique_allure_pente(df)
-    elif graph_name == "VAM vs Pente":
-        creer_graphique_vam(df)
-    elif graph_name == "FC vs Pente":
-        creer_graphique_fc_pente(df)
-    elif graph_name == "Efficacité de foulée vs Pente":
-        creer_graphique_ratio_vitesse_fc(df)
-    elif graph_name == "Impact de la fatigue":
-        impact_fatigue(df)
-    elif graph_name == "Comparaison d'Allure":
-        creer_graphique_comparaison(df, name1, df2, name2, 'allure_min_km', 'Allure (min/km)')
-    elif graph_name == "Comparaison de FC":
-        creer_graphique_comparaison(df, name1, df2, name2, 'frequence_cardiaque', 'Fréquence Cardiaque (bpm)')
-    # Ajout des cas pour le vélo
-    elif graph_name == "Vitesse vs Pente (Vélo)":
-        # Simuler une fonction de vitesse vs pente si elle n'est pas définie dans components/plots
-        creer_graphique_allure_pente(df, title="Vitesse vs Pente (Vélo)", y_col='vitesse_kmh', y_label='Vitesse (km/h)')
-    elif graph_name == "Efficacité Vélo (Vitesse/FC)":
-        creer_graphique_ratio_vitesse_fc(df, metric_col='efficacite_course_vap', metric_label='Efficacité Vélo (Vitesse/FC)')
+def conversion_temps_total(feature_h, feature_min):
+    """Convertit le temps total de la sortie en hh:mm:ss"""
+    temps_total_h = np.floor(feature_h.iloc[-1]).astype(int)
+    temps_total_min = np.floor((feature_h.iloc[-1] % 1) *60.0).astype(int)
+    temps_total_sec = np.round((feature_min.iloc[-1] % 1) * 60,0).astype(int)
 
+    temps_formatte = f"{temps_total_h:02d}:{temps_total_min:02d}:{temps_total_sec:02d}"
+    return temps_formatte
 
-def impact_fatigue(df, title="Impact de la fatigue"):
-    """Analyse l'impact de la fatigue en comparant la variation d'allure (CV) entre les deux moitiés du parcours."""
-    st.subheader(title)
-    # ... (Le corps de cette fonction reste le même)
-    if not df.empty and 'distance_km' in df.columns:
-        moitié_parcours = df['distance_km'].iloc[-1] / 2
+def coefficient_variation(feature):
+    """Calcule le Coefficient de Variation (CV) : écart-type / moyenne."""
+    mean = feature.mean()
+    std = feature.std()
+    
+    # Évite la division par zéro si la moyenne est 0
+    if mean == 0:
+        return 0 
+    
+    # Retourne le CV (souvent affiché en pourcentage si besoin, ici juste le ratio)
+    return std / mean
+
+def min_max_scaler(feature):
+    vmin = feature.min()
+    vmax = feature.max()
+    valeur_normalisee = (feature-vmin) / (vmax-vmin) * 100
+    return valeur_normalisee
+
+def plot_jointplot(df,x_var,y_var, hue_var=None):
+        kwargs = {
+            'data': df,
+            'x' : x_var,
+            'y': y_var,
+            'kind': 'hex'
+        }
+        if hue_var is not None:
+            kwargs['hue'] = hue_var
+            kwargs['kind'] = 'scatter'
+        joint_grid = getattr(sns,'jointplot')(**kwargs)
+        fig = joint_grid.figure
+        fig.set_size_inches(10,5)
+        st.pyplot(fig)
+        plt.close(fig)
+
+def plot_boxplot(df,x_var,y_var, hue_var=None):
+    kwargs = {
+            'data': df,
+            'x' : x_var,
+            'y': y_var,
+        }
+    if hue_var is not None:
+        kwargs['hue'] = hue_var
         
-        df_premiere_moitie = df[df['distance_km'] <= moitié_parcours].dropna(subset=['allure_min_km'])
-        df_seconde_moitie = df[df['distance_km'] > moitié_parcours].dropna(subset=['allure_min_km'])
+    fig, ax = plt.subplots(figsize=(12,5))
+    getattr(sns,'boxplot')(**kwargs)
+    plt.xticks(rotation=45, ha='right')
+    st.pyplot(fig)
+    plt.close(fig)
+
+def calculer_limites_iqr(df, feature):
+    """
+    """
+    # 1. Calcul des quartiles
+    Q1 = df[feature].quantile(0.25)
+    Q3 = df[feature].quantile(0.75)
+    
+    # 2. Calcul de l'Écart Interquartile (IQR)
+    IQR = Q3 - Q1
+
+    # 3. Facteur iqr value
+    iqr_factor = 1.5 * IQR
+
+    # 4. Calcul des limites d'aberration
+    limite_inf = Q1 - iqr_factor
+    limite_sup = Q3 + iqr_factor
+    
+    return limite_inf, limite_sup
+
+def drop_extreme_value(df, feature, FENETRE_LISSAGE):
+    """Remplacer les valeurs aberrantes par une interpolation linéaire puis réaliser un lissage par la suite"""
+    seuil_min, seuil_max = calculer_limites_iqr(df, feature)
+    df_temp = df.copy()
+    masque = (df[feature] > seuil_max) | (df[feature] < seuil_min)
+    df_temp.loc[masque, feature] = np.nan
+    df_temp[feature].interpolate(method='linear', inplace=True)
+    feature_lissee = df_temp[feature].rolling(window=FENETRE_LISSAGE, center=True).mean()
+    feature_lissee.fillna(df_temp[feature], inplace=True)
+    
+    return feature_lissee
+
+@st.cache_data
+def calculate_all_records(df, feature_distance, feature_tps, distances_a_calculer):
+    """
+    Calcule la meilleure performance (temps et allure) pour toutes les distances cibles 
+    dans une activité, en utilisant la méthode du balayage et de l'interpolation.
+    
+    Args:
+        df (pd.DataFrame): Le DataFrame de l'activité.
+        feature_distance (str): Nom de la colonne de distance (e.g., 'distance_effort_itra').
+        feature_tps (str): Nom de la colonne de temps (e.g., 'temps_relatif_sec').
+        distances_a_calculer (list): Liste des distances cibles en km (e.g., [5, 10, 21.1]).
         
-        if len(df_premiere_moitie) > 1 and len(df_seconde_moitie) > 1:
-            cv_premiere_moitie = np.std(df_premiere_moitie['allure_min_km']) / np.mean(df_premiere_moitie['allure_min_km'])
-            cv_seconde_moitie = np.std(df_seconde_moitie['allure_min_km']) / np.mean(df_seconde_moitie['allure_min_km'])
+    Returns:
+        pd.DataFrame: DataFrame contenant 'Distance (km)', 'Meilleur Temps (min)', 
+                      et 'Allure (min/km)' pour les records trouvés.
+    """
+    all_records = []
+    
+    # Récupérer les données brutes pour éviter de faire .loc[] répétitif
+    distances_cumulees = df[feature_distance]
+    temps_cumules = df[feature_tps]
+    
+    # 1. Itération sur chaque distance cible (e.g., 5 km, 10 km)
+    for distance_obj in distances_a_calculer:
+        
+        # Vérification si l'activité est assez longue pour la distance cible
+        if distance_obj > distances_cumulees.max():
+            # Si la course n'est pas assez longue, passer à la distance suivante
+            continue 
+
+        segment_temps = []
+        
+        # 2. Balayage de tous les points de départ possibles 'i'
+        for i in range(len(df)):
+            # Distance cible que l'on essaie d'atteindre : distance_au_point_i + distance_obj
+            dist_cible = distances_cumulees.loc[i] + distance_obj
+
+            # Trouver le premier point 'j' après 'i' qui a dépassé ou atteint dist_cible
+            # (mask_fin est basé sur l'index 'i+1:' de la série initiale)
+            mask_fin = distances_cumulees.loc[i+1:] >= dist_cible
+
+            if not mask_fin.any():
+                # Si la fin de l'activité ne peut pas atteindre dist_cible, on arrête le balayage pour cette distance
+                break 
+
+            # L'index j est le premier index où la condition est VRAIE
+            j = np.argmax(mask_fin.values) + i + 1
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**CV de l'allure sur la 1ère moitié (stable) :** **{cv_premiere_moitie:.2f}**")
-            with col2:
-                st.markdown(f"**CV de l'allure sur la 2ème moitié (fatigue) :** **{cv_seconde_moitie:.2f}**")
-                
-            if cv_seconde_moitie > cv_premiere_moitie * 1.05:
-                st.write("Le **CV de l'allure est significativement plus élevé** dans la seconde moitié. Cela indique une **gestion de l'effort moins stable ou une fatigue accrue**. 😩")
-            elif cv_seconde_moitie < cv_premiere_moitie * 0.95:
-                st.write("Le **CV de l'allure a diminué**, ce qui suggère une **meilleure stabilisation de l'allure** en fin de parcours. 👍")
+            # --- Interpolation ---
+            
+            # Temps et distance des points j et j-1
+            tps_j = temps_cumules.loc[j]
+            tps_prec = temps_cumules.loc[j-1]
+            dist_j = distances_cumulees.loc[j]
+            dist_prec = distances_cumulees.loc[j-1]
+            
+            # Temps estimé pour atteindre précisément dist_cible
+            tps_interpole = tps_prec + (tps_j - tps_prec) * (dist_cible - dist_prec) / (dist_j - dist_prec)
+            
+            # Temps total pour le segment [point i -> dist_cible]
+            tps_segment = tps_interpole - temps_cumules.loc[i]
+            
+            segment_temps.append(tps_segment)
+        
+        # 3. Stockage du meilleur record pour cette distance_obj
+        if segment_temps:
+            best_time_min = min(segment_temps)
+            pace_min_per_km = best_time_min / distance_obj
+            
+            all_records.append({
+                'Distance (km)': distance_obj,
+                'Meilleur Temps (min)': best_time_min,
+                'Allure (min/km)': pace_min_per_km
+            })
+
+    # 4. Retour du DataFrame final
+    return pd.DataFrame(all_records)
+
+def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
+    """
+    Détermine votre profil d'endurance par régression (Courbe de Puissance) 
+    et prédit le temps pour une nouvelle distance.
+
+    Args:
+        df_records (pd.DataFrame): DataFrame des records historiques (Distance_km, Time_hours).
+        new_distance_km (float): Distance horizontale de la nouvelle course.
+        distance_type (str): 'route' ou 'trail'. Si 'trail', le D+ est inclus.
+        d_plus_m (int): Dénivelé positif (D+) en mètres pour la nouvelle course (si trail).
+
+    Returns:
+        float: Temps prédit en heures.
+    """
+    
+    # === ÉTAPE 1: PRÉPARATION DES DONNÉES ET TRANSFORMATION LOG ===
+    
+    # Calcul de la vitesse moyenne (V = D / T)
+    df_records['vitesse_km_h'] = df_records['distance_km'] / (df_records['best_time_min'] / 60)
+    
+    # Application de la transformation logarithmique (Log-Log Plot)
+    df_records['log_D'] = np.log(df_records['distance_km'])
+    df_records['log_V'] = np.log(df_records['vitesse_km_h'])
+    
+    # === ÉTAPE 2: RÉGRESSION LINÉAIRE (Détermination de votre profil 'a' et 'b') ===
+    
+    # Régression: log(V) = a - b * log(D)
+    # Dans scipy.stats.linregress, nous obtenons la pente et l'ordonnée à l'origine (intercept).
+    # La pente est -b, l'intercept est a.
+    slope, intercept, r_value, p_value, std_err = linregress(
+        df_records['log_D'], 
+        df_records['log_V']
+    )
+    
+    a = intercept
+    b = -slope # L'exposant b doit être positif, car la vitesse diminue quand la distance augmente.
+    
+    print(f"--- Profil d'Endurance Personnalisé ---")
+    print(f"Coefficient 'a' (Vitesse maximale théorique): {a:.4f}")
+    print(f"Coefficient 'b' (Facteur de Dégradation): {b:.4f}")
+    print(f"Qualité du Fit (R²): {r_value**2:.4f}")
+    print("---------------------------------------")
+
+    df_records['log_V_pred'] = a + slope * df_records['log_D']
+
+    # 1. Crée la figure Matplotlib
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    # 2. Utilise regplot de Seaborn
+    # 'regplot' trace les points de données et la ligne de régression linéaire.
+    # Il calcule la régression directement entre 'log_D' et 'log_V'.
+    sns.regplot(
+        x='log_D', 
+        y='log_V', 
+        data=df_records, 
+        ax=ax,
+        ci=95, # Intervalle de confiance à 95% (l'ombre bleue autour de la droite)
+        scatter_kws={'color': 'blue', 'alpha': 0.8},
+        line_kws={'color': 'red', 'label': f'R²={r_value**2:.2f}'}
+    )
+    
+    # 3. Ajouter les statistiques calculées dans le titre ou les étiquettes
+    ax.set_title(
+        f"Courbe de Puissance (Log-Log Plot)\n"
+        f"Profil: ln(V) = {a:.4f} - {b:.4f} * ln(D)"
+    )
+    ax.set_xlabel("Logarithme de la Distance (ln(D))")
+    ax.set_ylabel("Logarithme de la Vitesse (ln(V))")
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.6)
+    
+    # Ajoutez le point de prédiction (Étape 3) si vous le souhaitez
+    
+    
+    
+    # === ÉTAPE 3: PRÉDICTION ===
+    
+    # 1. Calcul de log(D) pour la nouvelle distance
+    if new_denivele_pos is not None:
+        new_distance_itra = new_distance_km + (new_denivele_pos/100)
+    else:
+        new_distance_itra = new_distance_km
+
+    log_D_new = np.log(new_distance_itra)
+    
+    # 2. Prédiction de log(V)
+    log_V_pred = a - b * log_D_new # Vitesse en km/h
+    
+    # 3. Inversion du logarithme pour obtenir Vitesse_pred
+    V_pred_kmh = np.exp(log_V_pred)
+    
+    # 4. Calcul du Temps (T = D / V)
+    Time_pred_hours = new_distance_itra / V_pred_kmh
+    
+    return Time_pred_hours, fig
+
+@st.cache_data
+def process_activity(df_raw):
+
+    # Suppression des colonnes avec que des valeurs manquantes
+    df_raw.dropna(axis='columns', how='all', inplace=True)
+
+    # On supprime les temps de repos
+    df_raw = df_raw[df_raw['resting'] == False]
+
+    # Supprimer les premières lignes où moving == False car pas de détection de mouvement par la montre
+    premier_idx_moving = df_raw['moving'].idxmax()
+    df_raw = df_raw.loc[premier_idx_moving:]
+
+    # Remettre à zéro les colonnes 'temps_relatif_sec' et 'distance_m'
+    df_raw['temps_relatif_sec'] -= df_raw['temps_relatif_sec'].min()
+    df_raw['distance_m'] -= df_raw['distance_m'].min()
+    
+
+    # Application de la normalisation pour le temps et la distance
+    df_raw['temps_reel_s'], df_raw['temps_normalisee'] = normalisation_data(df_raw, 'temps_relatif_sec') # en secondes
+    df_raw['distance_reelle_m'], df_raw['distance_normalisee'] = normalisation_data(df_raw,'distance_m') # en mètres
+    
+    # Conversion des distances et temps dans les différentes unités possibles
+    df_raw['temps_h'] = df_raw['temps_reel_s'] / 3600
+    df_raw['temps_min'] = df_raw['temps_reel_s'] / 60
+    df_raw['distance_km'] = df_raw['distance_reelle_m'] / 1000
+
+    # Calcul de la vitesse lissee en km_h
+    df_raw['vitesse_km_h'] = df_raw['vitesse_lissee'] * 3.6
+
+    df_raw ['vitesse_km_h'] = np.where(np.isinf(60 / df_raw['vitesse_km_h']), np.nan, df_raw['vitesse_km_h'])
+
+    # Gestion des valeurs extrêmes pour la vitesse et la pente
+    df_raw['vitesse_km_h_lissee'] = drop_extreme_value(df_raw, feature='vitesse_km_h', FENETRE_LISSAGE=5)
+    df_raw['pente_lissee'] = drop_extreme_value(df_raw, feature='pente_lissee', FENETRE_LISSAGE=5)
+
+    # Calcul de l'allure en min/km
+    allure_min_km = 60 / df_raw['vitesse_km_h_lissee']
+    df_raw['allure_min_km'] = allure_format(allure_min_km)
+
+    # Fréquence cardiaque : on établie des zones de FC
+    if 'frequence_cardiaque' in df_raw.columns.tolist():
+        df_raw['fc_normalisee'] = df_raw['frequence_cardiaque'] / (200) * 100
+        bins_fc = [0, 60, 68, 75, 82, 89, 94, 100] #modèle scientifique 7 zones
+        labels_fc = []
+        for i in range(len(bins_fc) - 1):
+            start = bins_fc[i]
+            end = bins_fc[i+1]
+            zone_names = ['Récup', 'End. Base', 'End. Fond.', 'Tempo', 'Seuil', 'VO2 Max', 'Effort Max']
+            label = f"({start} - {end}% FC Max) {zone_names[i]}"
+            labels_fc.append(label)
+        df_raw['zone_fc'] = pd.cut(x=df_raw['fc_normalisee'], bins=bins_fc, labels=labels_fc)
+    else:
+        pass # pas de données de FC
+
+    # Puissance : on établie des zones de Puissance en fonction de la FTP
+    if 'puissance_watts' in df_raw.columns.tolist():
+        FTP_value = 250 # à modifier
+        df_raw['puissance_normalisee'] = df_raw['puissance_watts'] / FTP_value * 100
+        bins_puissance = [0, 55, 75, 90, 105, 120, 150, np.inf] #modèle scientifique 7 zones
+        labels_puissance = []
+        for i in range(len(bins_puissance) - 1):
+            start = bins_puissance[i]
+            end = bins_puissance[i+1]
+            zone_names = ['Récup', 'Endurance', 'Tempo', 'Seuil', 'VO2 Max','Capacité Anaérobie', 'Effort Max']
+            if end == np.inf:
+                end_str = 'Max'
+                label = f"({start}% to {end_str} FTP) {zone_names[i]}"
             else:
-                st.write("La variation de l'allure est restée **stable** tout au long de la course.")
-        else:
-            st.warning("Données insuffisantes pour comparer les deux moitiés du parcours (moins de deux points de données par moitié).")
+                label = f"({start} to {end}% FTP) {zone_names[i]}"
+            labels_puissance.append(label)
+        df_raw['zone_puissance'] = pd.cut(x=df_raw['puissance_normalisee'], bins=bins_puissance, labels=labels_puissance)
     else:
-        st.warning("Données d'activité insuffisantes pour l'analyse de fatigue.")
+        pass # pas de données de Puissance
 
-def analyze_segment_selection(df, start_km, end_km):
-    """Analyse un segment de l'activité entre deux distances et affiche les métriques et un graphique."""
-    # ... (Le corps de cette fonction reste le même, utilisez df pour le traitement)
-    segment_df = df[(df['distance_km'] >= start_km) & (df['distance_km'] <= end_km)].copy()
+
+    # Application de la coupe des données pour la distance et la pente_lissee
     
-    if segment_df.empty or len(segment_df) < 2:
-        st.warning("Aucune donnée dans le segment sélectionné ou segment trop court. Veuillez ajuster les distances.")
-        return
+
+    df_raw['tranche_distance'] = cutting_data_percent(df=df_raw, feature='distance_normalisee')
+    df_raw['tranche_pente'] = cutting_data_percent(df=df_raw, feature='pente_lissee', min_list=-50, max_list=50)
+    
+    # Calcul de l'efficacité de course
+    df_raw['efficacite_course'] = df_raw['vitesse_km_h_lissee'] / df_raw['frequence_cardiaque']
+    df_raw['efficacite_course_normalisee'] = min_max_scaler(df_raw['efficacite_course'])
+
+    # Calcul de la VAM VItesse Ascensionnelle en Montée
+    df_raw['vam'] = (df_raw['altitude_m'].diff() / df_raw['temps_h'].diff()).fillna(0)
+
+    # Calcul de l'Allure Ajustée selon la Pente
+    df_raw['vap_allure'] = calculate_vap(df_raw['allure_min_km'],df_raw['pente_lissee'])
+
+    # Calcul de la Différence de vitesse
+    df_raw['diff_allure'] = df_raw['allure_min_km'] - df_raw['vap_allure']
+
+    #Calcul du dénivelé positif et négatif
+    df_raw['d_pos_diff'], df_raw['d_neg_diff'], df_raw['d_pos_cum'], df_raw['d_neg_cum'] = calculer_denivele(df_raw['altitude_m'])
+
+    # Calcul d'indicateur de la sortie
+    ratio_denivele_distance = df_raw['d_pos_cum'].max() / df_raw['distance_km'].max()
+    km_effort_itra = np.round(df_raw['distance_km'].max() + (df_raw['d_pos_cum'].max() / 100),1)
+    km_effort_611 = np.round(df_raw['distance_km'].max() + (df_raw['d_pos_cum'].max() * 6.11 / 1000),1)
+
+    # Calcul de la distance d'effort avec formule itra basique 100m d+ = 1km en + d'effort
+    df_raw['distance_effort_itra'] = df_raw['distance_km'] + (df_raw['d_pos_cum'] / 100)
+
+    # Calcul du temps total au format hh:mm:ss
+    temps_total_formatte = conversion_temps_total(df_raw['temps_h'], df_raw['temps_min'])
+
+    # surface --> 0 route et 1--> chemin
+    df_raw['surface'].replace({0: 'road', 1: 'trail'}, inplace=True)
+
+    # étude des outliers
+
+    # Remettre à jour l'indexation du df
+    df_raw.reset_index(drop=True,inplace=True)
+
+    # Supprimer les colonnes inutiles
+    df_raw.drop(columns=['vitesse_lissee','vitesse_km_h','distance_m','latlng','resting','outlier'], inplace=True)
+    df_raw.dropna(axis='columns', how='all', inplace=True)
+
+    return df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance  
+
+
+def get_format(feature, aggfunc):
+    """Retourne le format pour le crosstab"""
+    if feature in ['vitesse_km_h_lissee','vap_vitesse','diff_vitesse']:
+        return '.1f'
+    elif feature in ['allure_min_km','efficacite_course','vap_allure']:
+        return '.2f'
+    elif aggfunc is coefficient_variation:
+        return '.2f'
+    return 'd'  
+
+def crosstab(df, feature, aggfunc, vmin=None,vmax=None,):
+    fmt_heatmap = get_format(feature,aggfunc)
+    dtype_final = float if 'f' in fmt_heatmap else int
+    fig, ax = plt.subplots(figsize=(15,5))
+    crosstab = pd.crosstab(df['tranche_distance'], df['tranche_pente'], df[feature],aggfunc=aggfunc).fillna(0).astype(dtype_final)
+    sns.heatmap(crosstab, annot=True, cmap='viridis', linewidths=0.5, fmt=fmt_heatmap, cbar=True, ax=ax, vmin=vmin, vmax=vmax,
+                annot_kws={'fontsize': 12})
+    st.pyplot(fig)
+    plt.close(fig)
+
+def time_formatter(x, pos=None):
+    """
+    Formateur Matplotlib et Streamlit : Convertit les minutes décimales (float) en format MM:SS.
+    C'est la fonction qui permet d'afficher 04:45 pour 4.75.
+    """
+    tps = x
+    heures = int(tps // 60)
+    minutes = int(np.floor(tps % 60))
+    seconds = int(np.floor((tps % 1) * 60))
+    
+    # Gérer le cas où l'arrondi fait passer les secondes à 60
+    if seconds == 60:
+        minutes += 1
+        seconds = 0
         
-    st.subheader(f"Analyse du segment du km **{start_km:.2f}** au km **{end_km:.2f}**")
-    
-    distance_segment = segment_df['distance_km'].iloc[-1] - segment_df['distance_km'].iloc[0]
-    
-    temps_debut = segment_df['temps_relatif_sec'].iloc[0]
-    temps_fin = segment_df['temps_relatif_sec'].iloc[-1]
-    duree_segment_sec = temps_fin - temps_debut
-    duree_min = int(duree_segment_sec // 60)
-    duree_sec = int(duree_segment_sec % 60)
+    return f"{heures:02d}:{minutes:02d}:{seconds:02d}"
 
-    denivele_positif = segment_df['altitude_m'].diff().clip(lower=0).sum().round(0)
-    denivele_negatif = segment_df['altitude_m'].diff().clip(upper=0).sum().round(0) * -1
-    
-    # allure_moyenne = segment_df['allure_min_km'].mean()
-    # allure_std = segment_df['allure_min_km'].std()
+@st.cache_data
+def detection_montees(df, feature_altitude, window_rolling=90):
+        """Détection des montées, descentes et plats"""
+        altitude_lissee = df[feature_altitude].rolling(window=window_rolling, center=True).mean()
+        diff_altitude_lissee = altitude_lissee.diff()
+        montee = np.where(diff_altitude_lissee > 0.01, 1, np.where(diff_altitude_lissee < 0.01, -1, 0))
+        return montee
 
-    allure_vap_moy = segment_df['allure_vap'].mean()
-    allure_vap_std = segment_df['allure_vap'].std()
+@st.cache_data   
+def plot_montees(df, feature_distance, feature_altitude, var_montee):
+    """Trace la courbe d'altitude et celles des montées pour voir si la détection est bonne"""
+    fig,ax1 = plt.subplots()
+    sns.lineplot(data=df, x=feature_distance, y=feature_altitude, ax=ax1)
+    ax2 = ax1.twinx()
+    sns.lineplot(data=df, x=feature_distance, y=var_montee, ax=ax2, color='tab:red')
+    return fig
+
+st.title("🏃‍♂️ Analyse d'Activité Strava")
+
+# --- Configuration de la barre latérale pour l'analyse ---
+st.sidebar.header("Configuration de l'activité")
+
+try:
+    # Utilisation de la version cachée
+    recent_activities = get_last_activity_ids_cached(200)
+except Exception as e:
+    st.error(f"Erreur lors de la récupération des activités récentes via l'API Strava : {e}")
+    recent_activities = []
     
-    fc_moyenne = segment_df['frequence_cardiaque'].mean() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
-    fc_std = segment_df['frequence_cardiaque'].std() if 'frequence_cardiaque' in segment_df.columns and not segment_df['frequence_cardiaque'].isnull().all() else None
-    col1, col2, col3, col4, col5 = st.columns(5)
+activity_options = {f"{act['name']}": act['id'] for act in recent_activities}
+activity_options = {'Sélectionner une activité': None} | activity_options | {'Saisir un autre ID': 'manual'}
+
+selected_option = st.sidebar.selectbox("Sélectionnez une activité récente (1) :", list(activity_options.keys()), key="select_act_1")
+
+
+
+activity_id_input = None
+if activity_options[selected_option] == 'manual':
+    activity_id_input = st.sidebar.text_input("Entrez l'ID de l'activité (1)", '', key="input_act")
+else:
+    activity_id_input = activity_options[selected_option]
+    
+
+# Bouton de chargement (déclenche le processus)
+st.sidebar.markdown("---")
+
+# Utilisation d'un conteneur pour les messages de chargement
+status_container = st.empty()
+
+if st.sidebar.button("🚀 Charger l'activité"):
+    
+    if not activity_id_input:
+        status_container.warning("Veuillez sélectionner ou entrer l'ID de la première activité.")
+
+    activity_id = None
+    try:
+        activity_id = int(activity_id_input)
+    except ValueError:
+        status_container.error("L'ID de l'activité doit être un nombre entier.")
+
+    # 1. Traitement de l'activité 1 (Chargement brut et mise en cache)
+    try:
+        # Utilisation de la version cachée de l'API
+        df_raw, activity_name, sport_type, activity_date = get_activity_data_from_api_cached(activity_id)    
+
+        df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance = process_activity(df_raw)
+        
+        
+        
+        if df_raw.empty:
+            status_container.warning(f"L'activité **'{activity_name}'** n'a pas de données de stream ou est manuelle. Analyse impossible.")    
+        
+        # Stockage des résultats traités en session state
+        st.session_state['df_raw'] = df_raw
+        st.session_state['activity_name'] = activity_name
+        st.session_state['sport_type'] = sport_type
+        st.session_state['activity_id'] = activity_id
+        st.session_state['activity_date'] = activity_date
+        status_container.success(f"Données de l'activité **{activity_name}** chargées et traitées avec succès!")
+        
+    except Exception as e:
+        status_container.error(f"❌ Erreur critique lors du chargement/traitement de l'activité {activity_id} : {e}")
+        
+if 'df_raw' in st.session_state:
+    df_raw = st.session_state['df_raw']
+    activity_name = st.session_state['activity_name']
+    sport_type = st.session_state['sport_type']
+    activity_date = st.session_state['activity_date']
+    st.header(f"Activité Principale : **{activity_name}**")
+
+    sport_icon_map = {'Run': '🏃‍♂️', 'TrailRun': '⛰️', 'Ride': '🚴‍♂️', 'Hike': '🚶‍♂️'}
+    sport_icon = sport_icon_map.get(sport_type, '❓')
+    st.markdown(f"**Type d'activité :** *{sport_type}* {sport_icon}")
+
+    ###################################################
+    
+    
+    
+    ####################################################
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
-        display_metric_card("Distance", f"{distance_segment:.2f} km", "📏")
+        st.metric("Distance", value=f"{np.round(df_raw['distance_km'].max(),1)} km", border=True)
     with col2:
-        display_metric_card("Durée", f"{duree_min}min {duree_sec}sec", "⏱️")
+        st.metric("Dénivelé +", value=f"{int(df_raw['d_pos_cum'].max())}m", border=True)
     with col3:
-        display_metric_card("Dénivelé", f"""📈{denivele_positif:.0f} m 
-                                     \n 📉{abs(denivele_negatif):.0f} m""", "⛰️")
+        st.metric("Temps", value=f"{time_formatter(df_raw['temps_min'].max())}", border=True)
     with col4:
-        if not pd.isna(allure_vap_moy):
-            sub_value_gap = f"± {format_allure(allure_vap_std)}"
-            display_metric_card("Allure VAP moyenne", format_allure(allure_vap_moy), "👟", sub_value=sub_value_gap)
-        else:
-            display_metric_card("Allure VAP moyenne", "N/A", "👟")
+        st.metric("Allure Moyenne", value=f"{allure_format(df_raw['allure_min_km'].mean())}", border=True)
     with col5:
-        if fc_moyenne is not None and not pd.isna(fc_moyenne):
-            display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
+        st.metric("VAP Moyenne", value=f"{allure_format(df_raw['vap_allure'].mean())}", border=True, help="Allure Ajustée à la Pente")
+    with col6:
+        st.metric("FC Moyenne", value=f"{int(df_raw['frequence_cardiaque'].mean())} bpm", border=True)
+
+    st.divider()
+    
+    with st.expander("Détection des montées et des descentes"):
+        window_rolling = st.slider("Fenêtre pour le lissage des données d'altitude", value=90, min_value=5, max_value=200)
+        df_raw['segment'] = detection_montees(df_raw, feature_altitude='altitude_m',window_rolling=window_rolling)
+        fig_montees = plot_montees(df_raw,'distance_km','altitude_m','segment')
+        st.pyplot(fig_montees)
+        plt.close(fig_montees)    
+
+    df_raw['segment'].replace({1 : 'montées', -1 : 'descente', 0 : 'plat'}, inplace=True)  
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    with col1:
+        st.metric("Vitesse Asc", f"{int(df_raw[df_raw['segment'] == 'montées']['vam'].mean())} m/h", border=True)
+    with col2:
+        st.metric("Vitesse Desc", f"{int(df_raw[df_raw['segment'] == 'descente']['vam'].mean())} m/h", border=True)
+    with col3:
+        st.metric("Pente moy en montée", f"{int(df_raw[df_raw['segment'] == 'montées']['pente_lissee'].mean())} °", border=True)
+    with col4:
+        st.metric("Pente max en montée", f"{int(df_raw[df_raw['segment'] == 'montées']['pente_lissee'].max())} °", border=True)
+    with col5:
+        st.metric("FCmoy en montée", f"{int(df_raw[df_raw['segment'] == 'montées']['frequence_cardiaque'].mean())} bpm", border=True)
+    with col6:
+        st.metric("FCmoy en descente", f"{int(df_raw[df_raw['segment'] == 'descente']['frequence_cardiaque'].mean())} bpm", border=True)
+    
+    st.divider()
+    
+
+    list_col_all = df_raw.columns.tolist()
+    list_col_num = df_raw.select_dtypes([int,float]).columns.tolist()
+    list_col_cat = df_raw.select_dtypes([object,'category']).columns.tolist()
+
+    with st.expander("Etude heatmap"):
+        st.subheader("Paramètres")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            feature_option = st.selectbox('Indicateur à étudier',options=[None, *list_col_all])
+        with col2:
+            vmin_option = st.number_input("Quelle valeur min souhaites tu mettre?", value=None, step=1)
+        with col3:
+            vmax_option = st.number_input("Quelle valeur max souhaites tu mettre?", value=None, step=1)
+        aggfunc_dict = {
+            'Moyenne' : np.mean,
+            'Ecart_Type' : np.std,
+            'Somme': np.sum,
+            'Median': np.median,
+            'Minimum' : np.min,
+            'Maximum': np.max,
+            'Coefficient_de_Variation': coefficient_variation
+        }
+
+        if feature_option is None:
+            st.info("Sélectionner une variable")
         else:
-            display_metric_card("FC moyenne", "N/A", "💔")
-            
-    creer_graphique_interactif(segment_df, title="Détail du segment", key="graph_segment")
-
-
-def analyse_specifique_course(df):
-    """Affiche les graphiques d'analyse avancée spécifiques aux sports de course (pied) et de dénivelé."""
-    with st.expander("📈 Analyse de la foulée et du dénivelé", expanded=True):
-        st.header("Analyse de Pente, VAM, FC et Fatigue")
-        
-        col_select1, col_select2 = st.columns(2)
-        with col_select1:
-            graph_choisi1 = st.selectbox("Choisissez le 1er graphique :",
-                                         ("Allure vs Pente", "VAM vs Pente", "FC vs Pente", "Efficacité de foulée vs Pente", "Impact de la fatigue"), key="select_1")
-        with col_select2:
-            graph_choisi2 = st.selectbox("Choisissez le 2nd graphique :",
-                                         ("Allure vs Pente", "VAM vs Pente", "FC vs Pente", "Efficacité de foulée vs Pente", "Impact de la fatigue"), index=2, key="select_2")
-
-        col_graph1, col_graph2 = st.columns(2)
-        with col_graph1:
-            st.subheader(f"Graphique 1 : **{graph_choisi1}**")
-            afficher_graphique(graph_choisi1, df)
-        with col_graph2:
-            st.subheader(f"Graphique 2 : **{graph_choisi2}**")
-            afficher_graphique(graph_choisi2, df)
-
-
-def analyse_specifique_velo(df):
-    """Affiche les graphiques d'analyse avancée spécifiques au cyclisme."""
-    with st.expander("🚴‍♂️ Analyse de la performance cycliste", expanded=True):
-        st.header("Analyse Vitesse et Efficacité (Sans Puissance)")
-        st.info("Cette analyse est basée sur la vitesse, l'altitude et la fréquence cardiaque. Pour une analyse complète, les données de puissance (Watts) seraient nécessaires.")
-        
-        col_select1, col_select2 = st.columns(2)
-        with col_select1:
-            graph_choisi1 = st.selectbox("Choisissez le 1er graphique (Vélo) :",
-                                         ("Vitesse vs Pente (Vélo)", "Efficacité Vélo (Vitesse/FC)"), key="select_velo_1")
-        with col_select2:
-            graph_choisi2 = st.selectbox("Choisissez le 2nd graphique (Vélo) :",
-                                         ("Vitesse vs Pente (Vélo)", "Efficacité Vélo (Vitesse/FC)"), index=1, key="select_velo_2")
-
-        col_graph1, col_graph2 = st.columns(2)
-        with col_graph1:
-            st.subheader(f"Graphique 1 : **{graph_choisi1}**")
-            afficher_graphique(graph_choisi1, df)
-        with col_graph2:
-            st.subheader(f"Graphique 2 : **{graph_choisi2}**")
-            afficher_graphique(graph_choisi2, df)
-
-
-# ----------------------------------------------------------------------
-## Fonction de la Page d'Analyse (Mise à Jour avec cache et gestion d'erreurs)
-# ----------------------------------------------------------------------
-
-def analyse_page():
-    """Contient toute la logique de l'analyse d'une/deux activités."""
-    st.title("🏃‍♂️ Analyse d'Activité Strava")
-
-    # --- Configuration de la barre latérale pour l'analyse ---
-    st.sidebar.header("Configuration de l'activité")
-    
-    try:
-        # Utilisation de la version cachée
-        recent_activities = get_last_activity_ids_cached(200)
-    except Exception as e:
-        st.error(f"Erreur lors de la récupération des activités récentes via l'API Strava : {e}")
-        recent_activities = []
-        
-    activity_options = {f"{act['name']}": act['id'] for act in recent_activities}
-    activity_options = {'Sélectionner une activité': None} | activity_options | {'Saisir un autre ID': 'manual'}
-    
-    selected_option = st.sidebar.selectbox("Sélectionnez une activité récente (1) :", list(activity_options.keys()), key="select_act_1")
-    
-    activity_id_input1 = None
-    if activity_options[selected_option] == 'manual':
-        activity_id_input1 = st.sidebar.text_input("Entrez l'ID de l'activité (1)", '', key="input_act_1")
-    else:
-        activity_id_input1 = activity_options[selected_option]
-        
-    
-    # Bouton de chargement (déclenche le processus)
-    st.sidebar.markdown("---")
-    
-    # Utilisation d'un conteneur pour les messages de chargement
-    status_container = st.empty()
-    
-    if st.sidebar.button("🚀 Charger l'activité"):
-        
-        if not activity_id_input1:
-            status_container.warning("Veuillez sélectionner ou entrer l'ID de la première activité.")
-            return
-
-        activity_id1 = None
-        try:
-            activity_id1 = int(activity_id_input1)
-        except ValueError:
-            status_container.error("L'ID de l'activité doit être un nombre entier.")
-            return
-
-        # 1. Traitement de l'activité 1 (Chargement brut et mise en cache)
-        try:
-            # Utilisation de la version cachée de l'API
-            df_raw1, activity_name1, sport_type1 = get_activity_data_from_api_cached(activity_id1)
-            
-            if df_raw1.empty:
-                status_container.warning(f"L'activité **'{activity_name1}'** n'a pas de données de stream ou est manuelle. Analyse impossible.")
-                return
-
-            # Utilisation de la version cachée du traitement
-            df_result1 = process_data_cached(df_raw1)
-            
-            if df_result1 is None:
-                status_container.error("Le traitement des données a échoué. Vérifiez la qualité des données brutes (altitude, temps, etc.).")
-                return
-            
-            # Stockage des résultats traités en session state
-            st.session_state['df_filtre'] = df_result1
-            st.session_state['df_raw1'] = df_raw1
-            st.session_state['activity_name1'] = activity_name1
-            st.session_state['sport_type1'] = sport_type1
-            st.session_state['activity_id1'] = activity_id1
-            status_container.success(f"Données de l'activité **{activity_name1}** chargées et traitées avec succès!")
-            
-        except Exception as e:
-            st.session_state['df_filtre'] = None
-            status_container.error(f"❌ Erreur critique lors du chargement/traitement de l'activité {activity_id1} : {e}")
-            return
-            
-    # --- Affichage des résultats après chargement réussi ---
-    if 'df_filtre' in st.session_state and st.session_state['df_filtre'] is not None:
-        
-        df_filtre = st.session_state['df_filtre']
-        sport_type = st.session_state.get('sport_type1', 'Unknown')
-        activity_name = st.session_state.get('activity_name1', 'N/A')
-        activity_id = st.session_state.get('activity_id1', None)
-        df_raw1 = st.session_state['df_raw1']
-        
-        st.header(f"Activité Principale : **{activity_name}** (ID: {activity_id})")
-        
-        sport_icon_map = {'Run': '🏃‍♂️', 'TrailRun': '⛰️', 'Ride': '🚴‍♂️', 'Hike': '🚶‍♂️', 'Swim': '🏊‍♂️', 'Workout': '💪'}
-        sport_icon = sport_icon_map.get(sport_type, '❓')
-        st.markdown(f"**Type d'activité :** *{sport_type}* {sport_icon}")
-        
-        # Affichage de la carte
-        display_map(df_raw1, activity_name)
-
-        # --- Résumé de l'activité ---
-        st.subheader("Résumé de l'activité")
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        
-        if 'temps_relatif_sec' in df_filtre.columns and not df_filtre['temps_relatif_sec'].empty:
-            
-            # Métriques de base
-            temps_total_sec = df_filtre['temps_relatif_sec'].iloc[-1]
-            temps_total_h = int(temps_total_sec // 3600)
-            temps_total_min = int((temps_total_sec % 3600) // 60)
-            denivele_positif = df_filtre['altitude_m'].diff().clip(lower=0).sum().round(0)
-            denivele_negatif = df_filtre['altitude_m'].diff().clip(upper=0).sum().round(0) * -1
-            
-            # Allure vap
-            allure_vap_moy = df_filtre['allure_vap'].mean() if 'allure_vap' in df_filtre.columns and not df_filtre['allure_vap'].isnull().all() else np.nan
-            allure_vap_std = df_filtre['allure_vap'].std() if 'allure_vap' in df_filtre.columns and not df_filtre['allure_vap'].isnull().all() else np.nan
-
-            # Efficacité
-            efficacite_moy_vap = df_filtre['efficacite_course_vap'].mean() if 'efficacite_course_vap' in df_filtre.columns and not df_filtre['efficacite_course_vap'].isnull().all() else np.nan
-            efficacite_std_vap = df_filtre['efficacite_course_vap'].std() if 'efficacite_course_vap' in df_filtre.columns and not df_filtre['efficacite_course_vap'].isnull().all() else np.nan
-
-            # FC
-            fc_moyenne = df_filtre['frequence_cardiaque'].mean() if 'frequence_cardiaque' in df_filtre.columns and not df_filtre['frequence_cardiaque'].isnull().all() else np.nan
-            fc_std = df_filtre['frequence_cardiaque'].std() if 'frequence_cardiaque' in df_filtre.columns and not df_filtre['frequence_cardiaque'].isnull().all() else np.nan
-
-            # Calcul des scores (Assumes les colonnes 'vitesse_kmh_vap' et 'duree_h' existent après process_data)
-            MAX_VAP_KMH = 20 
-            MAX_EFFICACITE = 0.1 
-            
-            duree_h = temps_total_sec / 3600
-            
-            vitesse_vap_moy = df_filtre['vitesse_kmh_vap'].mean() if 'vitesse_kmh_vap' in df_filtre.columns and not df_filtre['vitesse_kmh_vap'].isnull().all() else 0
-            
-            normalized_vap = min(vitesse_vap_moy / MAX_VAP_KMH, 1.0)
-            score_effort = normalized_vap * duree_h * 100
-
-            normalized_efficacite = min(efficacite_moy_vap / MAX_EFFICACITE, 1.0) if not np.isnan(efficacite_moy_vap) else 0
-            score_effort_efficacite = normalized_efficacite * duree_h * 100
-            
-            # ----------------------------------------------------------------------
-            # MISE À JOUR BASE DE DONNÉES
-            # ----------------------------------------------------------------------
-            metrics_to_save = {
-                'activity_id' : activity_id,
-                'allure_vap_moy': allure_vap_moy,
-                'score_effort': score_effort,
-                'score_effort_efficacite': score_effort_efficacite
-            }
-            
-            try:
-                # Utilisation de la fonction originale (pas de cache nécessaire pour l'écriture)
-                update_activity_metrics_to_db(metrics_to_save)
-            except Exception as e:
-                # Ceci est une erreur non bloquante pour l'analyse
-                st.sidebar.warning(f"Avertissement DB: Échec de la mise à jour des métriques : {e}")
-            
-            # AFFICHAGE DES CARTES
-            with col1:
-                display_metric_card("Distance", f"{df_filtre['distance_km'].iloc[-1]:.1f} km", "📏")
-            with col2:
-                display_metric_card("Durée", f"{temps_total_h}h {temps_total_min}min", "⏱️")
-            with col3:
-                display_metric_card("Dénivelé", f"""📈{denivele_positif:.0f} m 
-                                     \n 📉{abs(denivele_negatif):.0f} m""", "⛰️")
-            
-            with col4:
-                if sport_type not in ['Ride', 'VirtualRide'] and not np.isnan(allure_vap_moy):
-                    sub_value_gap = f"± {format_allure(allure_vap_std)}"
-                    display_metric_card("Allure VAP moyenne", format_allure(allure_vap_moy), "👟", sub_value=sub_value_gap)
-                else :
-                    vitesse_moyenne = np.round(df_filtre['distance_km'].iloc[-1] / duree_h, 1) if duree_h > 0 else 0
-                    display_metric_card("Vitesse moyenne",f"{vitesse_moyenne} km/h", "🚴‍♂️")
-
-            with col5:
-                if not np.isnan(fc_moyenne):
-                    display_metric_card("FC moyenne", f"{fc_moyenne:.0f} bpm", "❤️", sub_value=f"± {fc_std:.0f}")
-                else:
-                    display_metric_card("FC moyenne", "N/A", "💔")
-                    
-            with col6:
-                if sport_type not in ['Ride', 'VirtualRide'] and not np.isnan(efficacite_moy_vap):
-                    display_metric_card("Efficacité", f"{efficacite_moy_vap:0.03}","⏱️", sub_value = f"± {efficacite_std_vap:0.03}" )
-                else:
-                    # Afficher la puissance moyenne si disponible (sinon N/A)
-                    puissance = df_raw1['puissance_watts'].mean() if 'puissance_watts' in df_raw1.columns and not df_raw1['puissance_watts'].isnull().all() else np.nan
-                    if not np.isnan(puissance):
-                         display_metric_card("Puissance moyenne", f"{puissance:.0f} watts", "⚡")
-                    else:
-                         display_metric_card("Efficacité", "N/A", "⏱️")
-                         
-        st.subheader("Profil d'Activité Complet")
-        
-        # Sélecteur pour afficher ou non le GAP
-        creer_graphique_interactif(df_filtre, title='Profil d\'Activité Interactif', key="graph_principal")
-        
-        st.markdown("---")
-
-        # --- Analyse de segment avec curseurs ---
-        with st.expander("🔍 Analyse de Segment Spécifique", expanded=True):
-            max_km = df_filtre['distance_km'].max()
-            col1,col2 = st.columns(2)
-            with col1:
-                start_km = st.number_input(
-                    "Sélectionnez le début du segment",
-                    min_value=0.00,
-                    max_value=max_km,
-                    value= 0.00,
-                    step=0.01,
-                    key="start_segment"
-                )
-            with col2:
-                end_km = st.number_input(
-                    "Sélectionnez la fin du segment",
-                    min_value=0.00,
-                    max_value=max_km,
-                    value= max_km,
-                    step=0.01,
-                    key="end_segment"
-                )
-            # S'assurer que les entrées sont valides avant d'analyser
-            if start_km < end_km and max_km > 0:
-                analyze_segment_selection(df_filtre, start_km, end_km)
-                creer_analyse_segment_personnalisee(df_filtre, start_km, end_km)
-
-        st.markdown("---")
-
-        # --- Affichage de l'analyse spécifique au sport ---
-        
-        if sport_type in ['Run', 'TrailRun', 'Walk', 'Hike']:
-            analyse_specifique_course(df_filtre)
-            
-        elif sport_type in ['Ride', 'VirtualRide']:
-            analyse_specifique_velo(df_filtre)
-            
+            aggfunc_option = st.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
+            aggfunc = aggfunc_dict[aggfunc_option]
+            st.subheader(f"{aggfunc_option} de la variable '{feature_option}' en fonction de la distance et de la pente_lissee")
+            crosstab(df_raw,feature_option,aggfunc=aggfunc, vmin=vmin_option, vmax=vmax_option)
+     
+    st.divider()
+    with st.expander("BoxPlot"):
+        col_var_x, col_var_y = st.columns(2)
+        with col_var_x:
+            var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_cat)
+        with col_var_y:
+            var_y = st.selectbox("Variable en ordonnée", options=[None] + list_col_num)
+        var_hue = None
+        if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_boxplot_option"):
+            var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_boxplot")
+        st.subheader(f"Boxplot de la variable {var_y} en fonction de la catégorie {var_x}")
+        if var_x is None or var_y is None:
+            st.info("Sélectionne les deux variables pour le graphique")
+        elif var_hue is not None:
+            plot_boxplot(df_raw,var_x,var_y, var_hue)
         else:
-            st.info(f"Pas d'analyse avancée spécifique implémentée pour le type d'activité : **{sport_type}**.")
-            
-            
-    else:
-        st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 Charger l'activité'** pour commencer l'analyse.")
+            plot_boxplot(df_raw,var_x,var_y)
 
+    st.divider()
 
-# ----------------------------------------------------------------------
-## Fonction de la nouvelle Page de Progression (Mise à Jour avec cache)
-# ----------------------------------------------------------------------
+    ## Joint Plot
 
-def progression_page():
-    """Affiche les statistiques générales de progression à partir de la base de données."""
-    st.title("📈 Tableau de Bord de Progression et Statistiques Générales")
-    
-    # 1. CHARGEMENT DES DONNÉES EN CACHE
-    conn = get_db_connection_cached() 
-    
-    try:
-        df_cache = pd.read_sql_query("SELECT * FROM activities_cache", conn)
-    except Exception as e:
-        st.error(f"Erreur lors de la lecture de la table 'activities_cache' : {e}")
-        return
-    
-    if df_cache.empty:
-        st.info("La base de données ne contient aucune activité mise en cache. Chargez des activités via l'onglet 'Analyse d'Activité' pour voir les statistiques ici.")
-        return
-
-    # Utilisation de la version cachée de l'extraction
-    df_progression = extract_metrics_from_cache_cached(df_cache)
-    
-    if df_progression.empty or df_progression['score_effort_efficacite'].isnull().all():
-        st.info("Aucune donnée d'activité valide ou aucun score de progression calculé trouvé. Veuillez analyser des activités pour générer les métriques.")
-        return
-
-    # Préparation des données pour le regroupement
-    df_progression['date'] = pd.to_datetime(df_progression['date'], errors='coerce') 
-    df_progression = df_progression.dropna(subset=['date'])
+    with st.expander("Joint Plot"):
         
-    # --- 2. FILTRES DE PÉRIODE ET DE TYPE ---
-    st.header("Filtres")
-    col_f1, col_f2 = st.columns(2)
+        col_var_x, col_var_y = st.columns(2)
+        with col_var_x:
+            var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_num, key='var_x_joint_plot')
+            list_col_num_var_y = [col for col in list_col_num if col != var_x ]
+        with col_var_y:
+            var_y = st.selectbox("Variable en ordonnée", options=[None] + list_col_num_var_y, key='var_y_joint_plot')
+        var_hue = None
+        if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_jointplot_option"):
+            var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_jointplot")
+        st.subheader(f"Joint Plot de la variable {var_y} en fonction de la catégorie {var_x}")
+        if var_x is None or var_y is None:
+            st.info("Sélectionne les deux variables pour le graphique")
+        elif var_hue is not None:
+            plot_jointplot(df_raw, var_x, var_y,var_hue)
+        else:
+            plot_jointplot(df_raw, var_x, var_y)
     
-    # Filtre Temporel (Identique)
-    periode_choisie = col_f1.selectbox("Sélectionnez la période d'analyse :", 
-                                       ["Total", "Derniers 30 jours", "Derniers 90 jours", "Année en cours", "Personnalisée"])
-
-    date_max = df_progression['date'].max()
-    date_min_data = df_progression['date'].min()
     
-    df_filtre_periode = df_progression.copy()
     
-    # Application des filtres temporels
-    if periode_choisie == "Derniers 30 jours":
-        date_debut = date_max - timedelta(days=30)
-        df_filtre_periode = df_progression[df_progression['date'] >= date_debut]
-    elif periode_choisie == "Derniers 90 jours":
-        date_debut = date_max - timedelta(days=90)
-        df_filtre_periode = df_progression[df_progression['date'] >= date_debut]
-    elif periode_choisie == "Année en cours":
-        annee_actuelle = date_max.year
-        df_filtre_periode = df_progression[df_progression['date'].dt.year == annee_actuelle]
-    elif periode_choisie == "Personnalisée":
-        date_debut_filtre, date_fin_filtre = col_f1.date_input("Intervalle de dates", [date_min_data.date(), date_max.date()])
-        df_filtre_periode = df_progression[(df_progression['date'].dt.date >= date_debut_filtre) & (df_progression['date'].dt.date <= date_fin_filtre)]
-        
-    # Filtre Type de Sport (Identique)
-    sports_disponibles = ['Tous'] + sorted(df_filtre_periode['type_sport'].unique().tolist())
-    sport_choisi = col_f2.selectbox("Filtrer par type de sport :", sports_disponibles)
+    # Enregistrement des performances tous les km dans la database
+    init_db()
+    df_existing_record = load_activity_records_by_key(activity_date, sport_type)
 
-    if sport_choisi != 'Tous':
-        df_final = df_filtre_periode[df_filtre_periode['type_sport'] == sport_choisi].copy()
-    else:
-        df_final = df_filtre_periode.copy()
-        
-    if df_final.empty:
-        st.warning("Aucune activité trouvée avec les filtres sélectionnés.")
-        return
-        
-    # --- 3. Statistiques Générales Cumulées (Identique) ---
-    st.header(f"Statistiques Cumulées ({periode_choisie} - {sport_choisi})")
-    
-    total_distance = df_final['distance_km'].sum()
-    total_denivele = df_final['denivele_positif_m'].sum()
-    
-    col_a, col_b, col_c = st.columns(3)
-    
-    with col_a:
-        display_metric_card("Total Activités", f"{len(df_final):.0f}", "🔢")
-    with col_b:
-        display_metric_card("Distance Totale", f"{total_distance:,.0f} km", "🌍")
-    with col_c:
-        display_metric_card("Dénivelé Total", f"{total_denivele:,.0f} m", "🏔️")
-    
-    # --- 4. ANALYSE DE LA CHARGE ET DE L'EFFICACITÉ (Identique) ---
-    st.header("Analyse de la Charge et de l'Efficacité")
-
-    col_p1, col_p2 = st.columns(2)
-    
-    # Graphique d'Efficacité 
-    with col_p1:
-        st.subheader("Efficacité (VAP/FC) par Activité")
-        # NOTE: La colonne 'progression_metric' n'existe pas dans le code fourni, j'utilise 'score_effort'
-        fig_prog = px.scatter(df_final, x='date', y='score_effort', 
-                              title="Tendance de l'Efficacité Course (VAP/FC)",
-                              labels={'score_effort': 'Score d\'Effort Vitesse', 'date': 'Date'},
-                              hover_data=['nom', 'distance_km', 'allure_vap_moy'],
-                              trendline="lowess", 
-                              height=400)
-        fig_prog.update_traces(marker=dict(size=8, opacity=0.7))
-        fig_prog.update_layout(showlegend=False)
-        st.plotly_chart(fig_prog, use_container_width=True)
-
-
-    # Graphique du Score d'Effort (score_effort_efficacite)
-    with col_p2:
-        st.subheader("Charge d'Entraînement (Score d'Effort)")
-        
-        fig_effort = px.scatter(df_final, x='date', y='score_effort_efficacite', 
-                                 title="Charge d'Entraînement (Effort Score)",
-                                 labels={'score_effort_efficacite': 'Score d\'Effort (TSS Éq.)', 'date': 'Date'},
-                                 hover_data=['nom', 'duree_h'], # progression_metric n'existe pas
-                                 color='type_sport', 
-                                 height=400)
-        fig_effort.update_traces(marker=dict(size=10, opacity=0.8))
-        fig_effort.update_layout(showlegend=True)
-        st.plotly_chart(fig_effort, use_container_width=True)
-        
-    # --- 5. Progression Temporelle (Volume d'Entraînement - Identique) ---
-    st.header("Volume d'Entraînement")
-    
-    # ... (Reste de la fonction progression_page inchangé)
-    if (date_max - df_final['date'].min()).days < 100:
-        df_final['periode_label'] = df_final['date'].dt.strftime('%Y-S%W')
-        periode_type = 'Semaine'
-    else:
-        df_final['periode_label'] = df_final['date'].dt.strftime('%Y-%m')
-        periode_type = 'Mois'
-        
-    df_progression_group = df_final.groupby('periode_label').agg( 
-        distance=('distance_km', 'sum'),
-        denivele=('denivele_positif_m', 'sum'),
-    ).reset_index().sort_values('periode_label', ascending=True)
-
-    col_g1, col_g2 = st.columns(2)
-    
-    with col_g1:
-        st.subheader(f"Distance par {periode_type} (km)")
-        fig_dist = px.bar(df_progression_group, x='periode_label', y='distance', 
-                          title=f'Distance Totale par {periode_type}', 
-                          labels={'distance': 'Distance (km)', 'periode_label': periode_type},
-                          height=350)
-        fig_dist.update_xaxes(type='category', tickangle=45) 
-        st.plotly_chart(fig_dist, use_container_width=True)
-
-    with col_g2:
-        st.subheader(f"Dénivelé Positif par {periode_type} (m)")
-        fig_deniv = px.bar(df_progression_group, x='periode_label', y='denivele', 
-                            title=f'Dénivelé Positif par {periode_type}', 
-                            labels={'denivele': 'Dénivelé (m)', 'periode_label': periode_type},
-                            color_discrete_sequence=['#FF7F0E'],
-                            height=350)
-        fig_deniv.update_xaxes(type='category', tickangle=45)
-        st.plotly_chart(fig_deniv, use_container_width=True)
-        
-    # --- 6. Répartition (Identique) ---
-    st.header("Répartition par Type de Sport")
-    
-    if 'type_sport' in df_final.columns and not df_final['type_sport'].isnull().all():
-        df_sport = df_final[df_final['distance_km'] > 0.1]
-        
-        df_sport_group = df_sport.groupby('type_sport').agg(
-            total_distance=('distance_km', 'sum'),
-            count=('id', 'count')
-        ).reset_index()
-
-        col_pie, col_bar = st.columns(2)
-        with col_pie:
-            st.subheader("Par Nombre d'Activités")
-            fig_pie = px.pie(df_sport_group, names='type_sport', values='count', 
-                              title="Répartition des activités par Nombre", height=350)
-            st.plotly_chart(fig_pie, use_container_width=True)
-            
-        with col_bar:
-            st.subheader("Par Distance Totale (km)")
-            fig_bar = px.bar(df_sport_group, x='type_sport', y='total_distance', 
-                              title='Distance par Type de Sport', height=350,
-                              labels={'type_sport': 'Sport', 'total_distance': 'Distance (km)'})
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-    else:
-        st.info("Les données de type de sport sont insuffisantes pour cette analyse.")
-
-
-# ----------------------------------------------------------------------
-## Fonction Principale de l'Application
-# ----------------------------------------------------------------------
-
-def main_app():
-    """Contient la logique de navigation principale une fois l'initialisation réussie."""
-    st.sidebar.title("Navigation")
-    
-    # SÉLECTEUR DE PAGE PRINCIPAL
-    page = st.sidebar.radio("Choisissez la vue :", ["🏃‍♂️ Analyse d'Activité", "📈 Tableau de Bord de Progression"])
-
-    st.sidebar.markdown("---")
-    
-    if page == "🏃‍♂️ Analyse d'Activité":
-        analyse_page()
-    elif page == "📈 Tableau de Bord de Progression":
-        progression_page()
-
-
-# ----------------------------------------------------------------------
-## Point d'Entrée (avec Page de Chargement)
-# ----------------------------------------------------------------------
-
-def main():
-    """Point d'entrée de l'application Streamlit avec la vérification initiale."""
-    st.set_page_config(layout="wide", page_title="Analyse Strava Avancée")
-
-    # Vérification des prérequis (API et DB)
-    if not st.session_state.get('APP_READY'):
-        # Conteneur pour la page de chargement
-        loading_container = st.container()
-        
-        with loading_container:
-            st.title("🚀 Chargement et Initialisation du Système")
-            
-            # 1. Vérification des Secrets (Authentification)              
-            st.success("🔑 Authentification API Strava (Secrets) OK.")
-            
-            # 2. Initialisation de la Base de Données
-            try:
-                with st.spinner("⏳ Initialisation de la base de données..."):
-                    # Appel à la fonction mise en cache
-                    init_db_cached() 
-                st.success("🗄️ Base de données SQLite OK et prête.")
-                st.session_state['APP_READY'] = True
-                st.balloons()
-            except Exception as e:
-                st.error(f"❌ Erreur lors de l'initialisation de la DB : {e}")
-                st.stop()
-        
-        # Le script se relance et passe à la partie main_app
-        st.rerun()
+    if df_existing_record is not None and not df_existing_record.empty:
+        df_records = load_performance_records()
 
     else:
-        # Une fois initialisé, on lance l'application principale
-        main_app()
+        max_distance_floor = int(np.floor(df_raw['distance_effort_itra'].max()))
+        distances_list = [i for i in range(1, max_distance_floor + 1)]
+        df_results = calculate_all_records(df_raw, 'distance_effort_itra', 'temps_min', distances_a_calculer = distances_list)
+    
+        save_performance_records(df_results, sport_type, activity_date)
+        df_records = load_performance_records()
+    
+    df_record_per_distance = df_records.groupby(by='distance_km')['best_time_min'].min().reset_index()
+    
+    
+    # Prédicteur de course
 
+    st.divider()
+    with st.expander("Prédicteur de temps de course"):
+        st.subheader("Prédicteur de temps de course")
+        col_distance, col_denivele = st.columns(2)
+        with col_distance:
+            new_distance = st.number_input("Nouvelle distance à prédire", key="New_distance", value=None)
+        with col_denivele:
+            new_denivele = st.number_input("Quel dénivelé positif sur la course à prédire", key="New_dénivelé_pos", value=None)
+        if new_distance is None:
+            st.info("Rentre la nouvelle distance à prédire")
+        else:
+            new_time, fig_reg = fit_and_predict_time(df_record_per_distance, new_distance, new_denivele)
+            st.metric(label="Temps prédit",value=time_formatter(new_time * 60))
+            with st.expander("Veux tu regarder la courbe de Puissance?"):
+                st.pyplot(fig_reg)
+                plt.close(fig_reg)
 
-if __name__ == "__main__":
-    main()
+        # Prendre la valeur la plus basse pour une meme distance
+        
+        
+        st.subheader('Meilleure performance historique par distance')
+        fig,ax = plt.subplots()
+        sns.regplot(data=df_record_per_distance, x='distance_km', y='best_time_min', ci=95, ax=ax, order=2)
+        formatter = ticker.FuncFormatter(time_formatter)
+        # Applique le formateur à l'axe Y
+        ax.yaxis.set_major_formatter(formatter)
+        plt.ylabel('Temps_min')
+        st.pyplot(fig)
+        plt.close(fig)
+
+    
+
+    
+
+        
+else:
+    st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 Charger l'activité'** pour commencer l'analyse.")

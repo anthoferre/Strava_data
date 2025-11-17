@@ -50,6 +50,17 @@ def init_db():
             total_elevation_gain_m REAL
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS performance_records (
+            activity_date TEXT,
+            sport_type TEXT,
+            distance_km REAL,
+            best_time_min REAL,
+            pace_min_per_km REAL,
+            PRIMARY KEY (activity_date, sport_type, distance_km)
+        )
+    ''')
     
     # --- AJOUT DES NOUVELLES COLONNES DE PROGRESSION (Mise à jour du schéma) ---
     _add_missing_column(conn, 'allure_vap_moy', 'REAL')
@@ -177,9 +188,9 @@ def load_activity_from_db(activity_id):
                 
         start_date_display = activity_start_date.split('T')[0] if activity_start_date else 'Inconnue'
         st.sidebar.success(f"Cache DB : Activité **{activity_name}** chargée (Début: {start_date_display}).")
-        return df, activity_name, sport_type
+        return df, activity_name, sport_type, activity_start_date
     
-    return None, None, None
+    return None, None, None, None
 
 @st.cache_data
 def extract_metrics_from_cache(df_cache_in):
@@ -219,3 +230,133 @@ def extract_metrics_from_cache(df_cache_in):
             continue
     
     return pd.DataFrame(data_list)
+
+def load_activity_records_by_key(activity_date, sport_type):
+    """
+    Charge les records pour une activité spécifique (date et type de sport) 
+    depuis la base de données.
+
+    Args:
+        activity_date (str ou datetime): Date de l'activité (doit correspondre 
+                                         au format stocké dans la DB).
+        sport_type (str): Type de sport.
+
+    Returns:
+        pd.DataFrame ou None: DataFrame contenant les records trouvés, ou None 
+                              si aucun record n'est trouvé.
+    """
+
+    # 1. Préparation de la requête
+    # Nous utilisons des placeholders (?) pour prévenir les injections SQL 
+    # et pour passer les paramètres en toute sécurité.
+    query = f"""
+        SELECT 
+            distance_km, best_time_min, activity_date, sport_type
+        FROM 
+            performance_records
+        WHERE 
+            activity_date = ? AND sport_type = ?
+    """
+    
+    # Les paramètres doivent être fournis comme un tuple
+    params = (str(activity_date), sport_type) 
+    
+    
+    try:
+        # 2. Connexion à la base de données
+        conn = get_db_connection()
+        
+        # 3. Exécution de la requête et lecture dans un DataFrame Pandas
+        # pd.read_sql_query est parfait pour cette tâche
+        df_records = pd.read_sql_query(
+            sql=query, 
+            con=conn, 
+            params=params # Passage sécurisé des paramètres
+        )
+        
+        # 4. Vérification du résultat
+        if df_records.empty:
+            return None
+        else:
+            return df_records
+            
+    except sqlite3.Error as e:
+        print(f"Erreur SQLite lors du chargement des records: {e}")
+        return None
+        
+    finally:
+        pass
+
+def save_performance_records(df_results, sport_type, activity_date):
+    """
+    Sauvegarde les meilleures performances calculées (df_results) dans une table dédiée.
+    Ajoute la date du jour et le type de sport à chaque enregistrement.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Préparer les données
+    # Assurez-vous que le DataFrame a les colonnes attendues (Distance (km), Meilleur Temps (sec), Allure (sec/km))
+    
+    # Colonnes du DataFrame de résultats que nous allons renommer pour la DB
+    df_to_save = df_results.rename(columns={
+        'Distance (km)': 'distance_km',
+        'Meilleur Temps (min)': 'best_time_min',
+        'Allure (min/km)': 'pace_min_per_km'
+    })
+
+    # 2. Ajout des colonnes supplémentaires (date et sport_type)
+    df_to_save['activity_date'] = activity_date
+    df_to_save['sport_type'] = sport_type 
+
+    sql_query = """
+        INSERT OR REPLACE INTO performance_records 
+        (activity_date, sport_type, distance_km, best_time_min, pace_min_per_km)
+        VALUES (?, ?, ?, ?, ?)
+    """
+
+    # Itération sur les lignes du DataFrame
+    for index, row in df_to_save.iterrows():
+        # Préparation du tuple de valeurs pour l'exécution
+        data_tuple = (
+            row['activity_date'],
+            row['sport_type'],
+            row['distance_km'],
+            row['best_time_min'],
+            row['pace_min_per_km']
+        )
+        
+        try:
+            # Exécution de la requête : Si la clé primaire existe, elle remplace l'ancienne ligne.
+            cursor.execute(sql_query, data_tuple)
+        except Exception as e:
+            # st.error(f"Erreur d'insertion pour le record {row['sport_type']} {row['distance_km']} km: {e}")
+            conn.rollback() # Annule les insertions en cas d'erreur
+            return # Arrête le processus en cas d'échec critique
+
+    # Validation de toutes les insertions
+    conn.commit()
+
+def load_performance_records():
+    """
+    Charge tous les records de la table performance_records dans un DataFrame Pandas.
+    """
+    conn = get_db_connection()
+    
+    # Requête SQL pour sélectionner toutes les colonnes de la table
+    sql_query = "SELECT * FROM performance_records"
+    
+    try:
+        # pd.read_sql_query est la méthode recommandée pour lire des données SQL dans Pandas
+        df_records = pd.read_sql_query(sql_query, conn)
+        
+        # Le DataFrame est prêt à être retourné et analysé
+        return df_records
+        
+    except pd.io.sql.DatabaseError as e:
+        # Ceci gère le cas où la table n'existe pas encore (première exécution)
+        st.warning(f"La table 'performance_records' n'existe pas encore ou est inaccessible : {e}")
+        return pd.DataFrame() # Retourne un DataFrame vide
+    except Exception as e:
+        st.error(f"Erreur inattendue lors du chargement des records : {e}")
+        return pd.DataFrame()

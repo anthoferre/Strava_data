@@ -75,15 +75,15 @@ def get_activity_data_from_api(activity_id):
         return pd.DataFrame(), None, None
         
     # 1. Tenter de charger depuis la DB (cache)
-    df, activity_name, sport_type = load_activity_from_db(activity_id)
+    df, activity_name, sport_type, activity_start_date = load_activity_from_db(activity_id)
     if df is not None:
-        return df, activity_name, sport_type
+        return df, activity_name, sport_type, activity_start_date
     
     # 2. Si non trouvé, appeler l'API
     st.sidebar.warning(f"Cache DB : Activité {activity_id} non trouvée. Appel API Strava en cours...")
     access_token = get_access_token()
     if not access_token:
-        return pd.DataFrame(), None, None
+        return pd.DataFrame(), None, None, None
 
     # Récupération des détails (nom, type de sport et DATE DE DÉBUT)
     url_details = f"https://www.strava.com/api/v3/activities/{activity_id}"
@@ -102,7 +102,7 @@ def get_activity_data_from_api(activity_id):
         has_streams = activity_details.get('has_heartrate') or activity_details.get('has_latlng') # Indice rapide
     else:
         st.error(f"Erreur lors de la requête API pour les détails: {response_details.status_code}")
-        return pd.DataFrame(), None, None
+        return pd.DataFrame(), None, None, None
     
     # Vérification : si l'activité est manuelle ou sans données (ex: Workout)
     if sport_type in ['Workout', 'Yoga', 'VirtualRide', 'WeightTraining'] or not has_streams:
@@ -111,10 +111,11 @@ def get_activity_data_from_api(activity_id):
         save_activity_to_db(activity_id, activity_name, sport_type, pd.DataFrame({
             'temps_relatif_sec': [0], 'distance_m': [0], 'altitude_m': [0]
         }), activity_start_date)
-        return pd.DataFrame(), activity_name, sport_type
+        return pd.DataFrame(), activity_name, sport_type, activity_start_date
         
     # Récupération des streams
-    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth','moving','resting']
+    streams_types = ['time','distance', 'velocity_smooth','altitude', 'latlng', 'heartrate', 'watts',
+                     'cadence','grade_smooth','moving','resting','outlier','surface']
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {
         'access_token': access_token,
@@ -125,38 +126,43 @@ def get_activity_data_from_api(activity_id):
     
     if response_streams.status_code != 200:
         st.warning(f"Erreur lors de la requête API pour les streams : L'activité est peut-être manuelle.")
-        return pd.DataFrame(), activity_name, sport_type
+        return pd.DataFrame(), activity_name, sport_type, activity_start_date
         
     data = response_streams.json()
     df = pd.DataFrame({
-        'temps_relatif_sec': data.get('time', {}).get('data'),
-        'distance_m': data.get('distance', {}).get('data'),
-        'altitude_m': data.get('altitude', {}).get('data'),
+        'temps_relatif_sec': data.get('time', {}).get('data'), # Temps en secondes
+        'distance_m': data.get('distance', {}).get('data'), # Distance en m
+        'vitesse_lissee': data.get('velocity_smooth', {}).get('data'), # Vitesse lissée
+        'altitude_m': data.get('altitude', {}).get('data'), # Altitude en m
         'latlng': data.get('latlng', {}).get('data'), # Coordonnées GPS
-        'frequence_cardiaque': data.get('heartrate', {}).get('data'),
+        'frequence_cardiaque': data.get('heartrate', {}).get('data'), # Fréquence cardiaque
         'puissance_watts': data.get('watts', {}).get('data'), # Puissance (watts)
         'cadence': data.get('cadence', {}).get('data'), # Cadence (RPM ou SPM)
-        'pente': data.get('grade_smooth', {}).get('data'), # pente lissée
+        'pente_lissee': data.get('grade_smooth', {}).get('data'), # pente lissée
         'moving' : data.get('moving', {}).get('data'), # En mouvement
-        'resting' : data.get('resting', {}).get('data') # Au repos
+        'resting' : data.get('resting', {}).get('data'),# Au repos
+        'outlier' : data.get('outlier', {}).get('data'), # Valeurs aberrantes
+        'surface' : data.get('surface', {}).get('data'), # Surface
     })
+
+    
     
     if df.empty or 'temps_relatif_sec' not in df.columns:
         st.warning("Aucune donnée de stream temporelle disponible pour cette activité.")
-        return pd.DataFrame(), activity_name, sport_type
+        return pd.DataFrame(), activity_name, sport_type, activity_start_date
     
-    # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
-    if 'resting' in df.columns:
-        # On ne garde que les points où resting est False (ou n'est pas True)
-        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-        # supposant que l'absence d'information signifie l'absence de repos confirmé.
-        df = df[df['resting'] == False].copy()
+    # # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
+    # if 'resting' in df.columns:
+    #     # On ne garde que les points où resting est False (ou n'est pas True)
+    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
+    #     df = df[df['resting'] == False].copy()
 
-    if 'moving' in df.columns:
-        # On ne garde que les points où resting est False (ou n'est pas True)
-        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-        # supposant que l'absence d'information signifie l'absence de repos confirmé.
-        df = df[df['moving'] == True].copy()
+    # if 'moving' in df.columns:
+    #     # On ne garde que les points où resting est False (ou n'est pas True)
+    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
+    #     df = df[df['moving'] == True].copy()
     
     # Vérification après filtrage (pour les activités courtes ou avec beaucoup d'arrêts)
     if df.empty:
@@ -180,4 +186,4 @@ def get_activity_data_from_api(activity_id):
     # 3. Sauvegarder dans la DB avant de retourner
     save_activity_to_db(activity_id, activity_name, sport_type, df, activity_start_date)
     
-    return df, activity_name, sport_type
+    return df, activity_name, sport_type, activity_start_date

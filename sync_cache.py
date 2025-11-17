@@ -33,7 +33,7 @@ DB_PATH = os.getenv("DB_PATH", "strava_cache.db")
 
 # LIMITE POUR L'EXÉCUTION DU CACHE : Limite le nombre d'activités détaillées téléchargées par exécution
 # Ceci permet de respecter la limite de l'API Strava (900 requêtes / 15 minutes)
-MAX_ACTIVITIES_TO_CACHE_PER_RUN = 100
+MAX_ACTIVITIES_TO_CACHE_PER_RUN = 10
 # Limite pour la récupération de la liste d'activités (on lit le maximum pour voir les nouvelles)
 MAX_ACTIVITIES_LIST = 500
 # ---------------------------------------------------------------
@@ -137,7 +137,8 @@ def get_activity_data_and_save(activity_id, access_token):
         
     # 2. Récupération des streams détaillés
     # Inclut la puissance, la cadence, et la vitesse lissée
-    streams_types = ['time','distance', 'altitude', 'latlng', 'heartrate', 'watts', 'cadence','grade_smooth','moving','resting']
+    streams_types = ['time','distance', 'velocity_smooth','altitude', 'latlng', 'heartrate', 'watts',
+                     'cadence','grade_smooth','moving','resting','outlier','surface']
     url_streams = f"https://www.strava.com/api/v3/activities/{activity_id}/streams"
     params_streams = {
         'access_token': access_token,
@@ -153,33 +154,36 @@ def get_activity_data_and_save(activity_id, access_token):
     
     # Construction du DataFrame avec toutes les colonnes demandées
     df = pd.DataFrame({
-        'temps_relatif_sec': data.get('time', {}).get('data'),
-        'distance_m': data.get('distance', {}).get('data'),
-        'altitude_m': data.get('altitude', {}).get('data'),
+        'temps_relatif_sec': data.get('time', {}).get('data'), # Temps en secondes
+        'distance_m': data.get('distance', {}).get('data'), # Distance en m
+        'vitesse_lissee': data.get('velocity_smooth', {}).get('data'), # Vitesse lissée
+        'altitude_m': data.get('altitude', {}).get('data'), # Altitude en m
         'latlng': data.get('latlng', {}).get('data'), # Coordonnées GPS
-        'frequence_cardiaque': data.get('heartrate', {}).get('data'),
+        'frequence_cardiaque': data.get('heartrate', {}).get('data'), # Fréquence cardiaque
         'puissance_watts': data.get('watts', {}).get('data'), # Puissance (watts)
         'cadence': data.get('cadence', {}).get('data'), # Cadence (RPM ou SPM)
-        'pente': data.get('grade_smooth', {}).get('data'), # Pente lissée
+        'pente_lissee': data.get('grade_smooth', {}).get('data'), # pente lissée
         'moving' : data.get('moving', {}).get('data'), # En mouvement
-        'resting' : data.get('resting', {}).get('data') # Au repos
+        'resting' : data.get('resting', {}).get('data'),# Au repos
+        'outlier' : data.get('outlier', {}).get('data'), # Valeurs aberrantes
+        'surface' : data.get('surface', {}).get('data') # Surface
     })
     
     if df.empty or 'temps_relatif_sec' not in df.columns or df['temps_relatif_sec'].isnull().all():
         return False, activity_name
     
-    # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
-    if 'resting' in df.columns:
-        # On ne garde que les points où resting est False (ou n'est pas True)
-        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-        # supposant que l'absence d'information signifie l'absence de repos confirmé.
-        df = df[df['resting'] == False].copy()
+    # # --- NOUVEAU: FILTRAGE DES POINTS OÙ RESTING EST TRUE ---
+    # if 'resting' in df.columns:
+    #     # On ne garde que les points où resting est False (ou n'est pas True)
+    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
+    #     df = df[df['resting'] == False].copy()
 
-    if 'moving' in df.columns:
-        # On ne garde que les points où resting est False (ou n'est pas True)
-        # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
-        # supposant que l'absence d'information signifie l'absence de repos confirmé.
-        df = df[df['moving'] == True].copy()
+    # if 'moving' in df.columns:
+    #     # On ne garde que les points où resting est False (ou n'est pas True)
+    #     # Note: Si la colonne contient des NaN ou des valeurs nulles, ce filtre les conserve,
+    #     # supposant que l'absence d'information signifie l'absence de repos confirmé.
+    #     df = df[df['moving'] == True].copy()
     
     # Vérification après filtrage (pour les activités courtes ou avec beaucoup d'arrêts)
     if df.empty:
@@ -230,7 +234,7 @@ def sync_cache_main():
         activity_id = activity['id']
         # load_activity_from_db retourne None si l'activité n'est pas trouvée
         # *** Appel corrigé avec DB_PATH ***
-        df_cached, _, _ = load_activity_from_db(activity_id) 
+        df_cached, _, _, _ = load_activity_from_db(activity_id) 
 
         if df_cached is None: 
              activities_to_process.append(activity)
