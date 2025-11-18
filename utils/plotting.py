@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import streamlit as st
+from matplotlib.ticker import MultipleLocator
+import matplotlib.colors as mcolors
 
 def coefficient_variation(feature):
     """Calcule le Coefficient de Variation (CV) : écart-type / moyenne."""
@@ -75,4 +77,44 @@ def plot_montees(df, feature_distance, feature_altitude, var_montee):
     sns.lineplot(data=df, x=feature_distance, y=feature_altitude, ax=ax1)
     ax2 = ax1.twinx()
     sns.lineplot(data=df, x=feature_distance, y=var_montee, ax=ax2, color='tab:red')
+    return fig
+
+def agg_sql_df_period(df, period, feature, sport_type_list):
+
+    df_sport_type = df[df['sport_type'].isin(sport_type_list)]
+
+    df_agg = df_sport_type.groupby(by=period)[feature].sum().reset_index()
+
+    cmap = plt.cm.viridis # Vous pouvez choisir 'viridis', 'plasma', 'magma', etc.
+
+    # 2. Normaliser les données de distance pour les faire correspondre aux couleurs
+    norm = mcolors.Normalize(
+        vmin=df_agg[feature].min(),
+        vmax=df_agg[feature].max()
+    )
+    scalar_mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    scalar_mappable.set_array(df_agg[feature])
+
+    st.caption(f"Evolution de {feature} par {period}")
+
+    fig, ax = plt.subplots()
+    bars = sns.barplot(data=df_agg, x=period, y=feature, ax=ax)
+    for i, bar in enumerate(bars.patches):
+        # Récupérer la valeur de distance correspondante
+        distance_value = df_agg[feature].iloc[i]
+        # Appliquer la couleur basée sur la normalisation
+        bar.set_color(scalar_mappable.to_rgba(distance_value))
+    dict_month = {1: 'Janv.', 2: 'Févr.', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 7: 'Juil.', 8: 'Août', 
+                    9: 'Sept.', 10: 'Oct.', 11: 'Nov.', 12: 'Déc.'}
+    month_number = df['month'].unique().tolist()
+    month_labels = [dict_month[m] for m in month_number]
+    
+    if period == 'week':
+        ax.xaxis.set_major_locator(MultipleLocator(3))
+    elif period =='month':
+        ax.set_xticklabels(month_labels, rotation=45, ha='right')
+
+
+    # 5. Ajouter la barre de couleur (Colorbar)
+    cbar = fig.colorbar(scalar_mappable, ax=ax, orientation='vertical', pad=0.03)
     return fig

@@ -6,12 +6,11 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator
-import matplotlib.colors as mcolors
-from db_manager import init_db, get_db_connection, init_db, sql_df
+from utils.db_manager import init_db, get_db_connection, init_db, sql_df
 from strava_api import get_last_activity_ids, get_activity_data_from_api
 
 from utils.data_processing import process_activity, time_formatter, allure_format
+from utils.plotting import agg_sql_df_period
 
 st.set_page_config(layout='wide')
 # --- Configuration et Initialisation des Secrets ---
@@ -69,16 +68,12 @@ activity_options = {'Sélectionner une activité': None} | activity_options | {'
 
 selected_option = st.sidebar.selectbox("Sélectionnez une activité récente (1) :", list(activity_options.keys()), key="select_act_1")
 
-
-
 activity_id_input = None
 if activity_options[selected_option] == 'manual':
     activity_id_input = st.sidebar.text_input("Entrez l'ID de l'activité (1)", '', key="input_act")
 else:
     activity_id_input = activity_options[selected_option]
     
-
-# Bouton de chargement (déclenche le processus)
 st.sidebar.markdown("---")
 
 # Utilisation d'un conteneur pour les messages de chargement
@@ -127,8 +122,6 @@ if 'df_raw' in st.session_state:
     sport_icon = sport_icon_map.get(sport_type, '❓')
     st.markdown(f"**Type d'activité :** *{sport_type}* {sport_icon}")
     
-    
-    ####################################################
     st.subheader("Indicateurs généraux de l'activité")
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -155,46 +148,6 @@ if 'df_raw' in st.session_state:
     df_sql['delta_day'] = datetime.now(timezone.utc) - pd.to_datetime(df_sql['activity_start_date'])
     df_sql['delta_day'] = df_sql['delta_day'].dt.days
 
-    def agg_sql_df_period(df, period, feature, sport_type_list):
-
-        df_sport_type = df[df['sport_type'].isin(sport_type_list)]
-
-        df_agg = df_sport_type.groupby(by=period)[feature].sum().reset_index()
-
-        cmap = plt.cm.viridis # Vous pouvez choisir 'viridis', 'plasma', 'magma', etc.
-
-        # 2. Normaliser les données de distance pour les faire correspondre aux couleurs
-        norm = mcolors.Normalize(
-            vmin=df_agg[feature].min(),
-            vmax=df_agg[feature].max()
-        )
-        scalar_mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-        scalar_mappable.set_array(df_agg[feature])
-
-        st.caption(f"Evolution de {feature} par {period}")
-
-        fig, ax = plt.subplots()
-        bars = sns.barplot(data=df_agg, x=period, y=feature, ax=ax)
-        for i, bar in enumerate(bars.patches):
-            # Récupérer la valeur de distance correspondante
-            distance_value = df_agg[feature].iloc[i]
-            # Appliquer la couleur basée sur la normalisation
-            bar.set_color(scalar_mappable.to_rgba(distance_value))
-        dict_month = {1: 'Janv.', 2: 'Févr.', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 7: 'Juil.', 8: 'Août', 
-                     9: 'Sept.', 10: 'Oct.', 11: 'Nov.', 12: 'Déc.'}
-        month_number = df['month'].unique().tolist()
-        month_labels = [dict_month[m] for m in month_number]
-        
-        if period == 'week':
-            ax.xaxis.set_major_locator(MultipleLocator(3))
-        elif period =='month':
-            ax.set_xticklabels(month_labels, rotation=45, ha='right')
-
-
-        # 5. Ajouter la barre de couleur (Colorbar)
-        cbar = fig.colorbar(scalar_mappable, ax=ax, orientation='vertical', pad=0.03)
-        return fig
-    
     list_of_sport_type = df_sql['sport_type'].unique().tolist()
     sport_type_options = st.multiselect("Sélectionne le ou les sports que tu souhaites voir l'évolution?", 
                                         options=list_of_sport_type, default=['Hike','Run','TrailRun'])
@@ -220,6 +173,5 @@ if 'df_raw' in st.session_state:
         st.pyplot(fig)
         plt.close(fig)
 
-        
 else:
     st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 Charger l'activité'** pour commencer l'analyse.")

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib.ticker as ticker
 from utils.data_processing import fit_and_predict_time, time_formatter, calculate_all_records
-from db_manager import init_db, load_activity_records_by_key, load_performance_records, save_performance_records
+from utils.db_manager import init_db, load_activity_records_by_key, load_performance_records, save_performance_records
 
 st.title("Prédiction des prochains temps de course")
 

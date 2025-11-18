@@ -6,7 +6,7 @@ Ce dépôt contient le code source d'un projet personnel de Data Science visant 
 
 L'objectif est d'analyser au mieux la performance, d'exploiter des indicateurs clés pour l'optimisation de l'entraînement.
 
-## ✨ Fonctionnalités Clés
+## ✨ Fonctionnalités Clés à travers les différentes pages de l'application
 
 * **Extraction de données :** Connexion sécurisée à l'API Strava.
 * **Feature Engineering avancé :** Création et détection de métriques clés.
