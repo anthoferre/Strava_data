@@ -17,13 +17,13 @@ if 'df_raw' in st.session_state:
     list_col_cat = df_raw.select_dtypes([object,'category']).columns.tolist()
 
 
-    with st.expander("Etude heatmap"):
+    with st.expander("Etude heatmap", expanded=True):
         st.subheader("Paramètres")
         col1, col2, col3 = st.columns(3)
         with col1:
-            feature_option = st.selectbox('Indicateur à étudier',options=[None, *list_col_all])
+            feature_option = st.selectbox('Indicateur à étudier',options=[None, *list_col_num])
         with col2:
-            vmin_option = st.number_input("Quelle valeur min souhaites tu mettre?", value=None, step=1)
+            vmin_option = st.number_input("Quelle valeur min souhaites tu mettre?", step=1)
         with col3:
             vmax_option = st.number_input("Quelle valeur max souhaites tu mettre?", value=None, step=1)
         aggfunc_dict = {
@@ -42,7 +42,7 @@ if 'df_raw' in st.session_state:
             aggfunc_option = st.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
             aggfunc = aggfunc_dict[aggfunc_option]
             st.subheader(f"{aggfunc_option} de la variable '{feature_option}' en fonction de la distance et de la pente_lissee")
-            crosstab(df_raw,feature_option,aggfunc=aggfunc, vmin=vmin_option, vmax=vmax_option)
+            crosstab(df_raw,feature_option,aggfunc=aggfunc, vmax=vmax_option)
         
     st.divider()
     with st.expander("BoxPlot"):

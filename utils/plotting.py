@@ -29,11 +29,15 @@ def get_format(feature, aggfunc):
         return '.2f'
     return 'd'  
 
-def crosstab(df, feature, aggfunc, vmin=None,vmax=None,):
+def crosstab(df, feature, aggfunc, vmax=None,):
     fmt_heatmap = get_format(feature,aggfunc)
     dtype_final = float if 'f' in fmt_heatmap else int
     fig, ax = plt.subplots(figsize=(15,5))
     crosstab = pd.crosstab(df['tranche_distance'], df['tranche_pente'], df[feature],aggfunc=aggfunc).fillna(0).astype(dtype_final)
+    min = crosstab.values.flatten()
+    min = min[min>0].min()
+    if not pd.isna(min):
+        vmin = min
     sns.heatmap(crosstab, annot=True, cmap='viridis', linewidths=0.5, fmt=fmt_heatmap, cbar=True, ax=ax, vmin=vmin, vmax=vmax,
                 annot_kws={'fontsize': 12})
     st.pyplot(fig)

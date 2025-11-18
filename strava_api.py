@@ -6,7 +6,7 @@ import json
 import time
 
 # Importation des fonctions de la DB pour l'utilisation du cache
-from db_manager import save_activity_to_db, load_activity_from_db
+from utils.db_manager import save_activity_to_db, load_activity_from_db
 
 # --- Fonctions utilitaires API Strava ---
 

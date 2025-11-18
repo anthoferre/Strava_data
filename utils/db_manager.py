@@ -4,31 +4,6 @@ import pandas as pd
 import ast
 from datetime import datetime
 
-# --- FONCTIONS DE GESTION DE LA BASE DE DONNÉES SQLite ---
-
-@st.cache_resource
-def init_db_cached():
-    """Initialise la base de données (mise en cache)."""
-    # init_db() devrait être rapide s'il gère les connexions existantes
-    init_db() 
-    return True
-
-@st.cache_resource
-def get_db_connection_cached():
-    """Récupère la connexion DB (mise en cache)."""
-    return get_db_connection()
-
-@st.cache_data(ttl=3600) # Cache pendant 1 heure
-def get_last_activity_ids_cached(limit=200):
-    """Récupère les IDs d'activités récentes (mise en cache)."""
-    return get_last_activity_ids(limit)
-
-@st.cache_data(show_spinner="Téléchargement des données brutes Strava...", ttl=300) 
-def get_activity_data_from_api_cached(activity_id):
-    """Récupère et met en cache les données brutes d'une activité Strava."""
-    return get_activity_data_from_api(activity_id)
-
-
 @st.cache_resource
 def get_db_connection():
     """

@@ -20,8 +20,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Importation des fonctions du gestionnaire de DB
 # ATTENTION: Le fichier doit s'appeler 'db_manager.py'
-from db_manager import init_db 
-from db_manager import save_activity_to_db, load_activity_from_db 
+from utils.db_manager import init_db, save_activity_to_db, load_activity_from_db 
 
 
 # --- Configuration et variables (chargées par load_dotenv()) ---
