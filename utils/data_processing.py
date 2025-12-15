@@ -281,11 +281,67 @@ def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
 
 @st.cache_data
 def detection_montees(df, feature_altitude, window_rolling=90):
-        """Détection des montées, descentes et plats"""
-        altitude_lissee = df[feature_altitude].rolling(window=window_rolling, center=True).mean()
-        diff_altitude_lissee = altitude_lissee.diff()
-        montee = np.where(diff_altitude_lissee > 0.01, 1, np.where(diff_altitude_lissee < 0.01, -1, 0))
-        return montee
+    """Détection des montées, descentes et plats"""
+    altitude_lissee = df[feature_altitude].rolling(window=window_rolling, center=True).mean()
+    diff_altitude_lissee = altitude_lissee.diff()
+    montee = np.where(diff_altitude_lissee > 0.01, 1, np.where(diff_altitude_lissee < 0.01, -1, 0))
+    return montee
+
+
+def calculate_np(power_series):
+    """"""
+    if 'df_raw' in st.session_state:
+        sport_type = st.session_state['sport_type']
+
+    if sport_type != "Bike":
+        equivalent_power = 1 / power_series
+    else:
+        equivalent_power = power_series
+
+    # On lisse la vitesse sur une fenêtre de 30 secondes pour ignorer les courtes variations
+    ma_30s = equivalent_power.rolling(window=30, min_periods=1).mean()
+
+    # Élever la série lissée à la puissance 4
+    # Ceci pondère fortement les pics d'intensité
+    ma_30s_power_4 = ma_30s**4
+
+    # Calculer la moyenne de cette série (moyenne des puissances 4)
+    avg_ma_30s_power_4 = ma_30s_power_4.mean()
+
+    # Prendre la racine quatrième de la moyenne
+    normalized_power = avg_ma_30s_power_4**(1 / 4)
+
+    if sport_type != "Bike":
+        # Reconvertir la vitesse normalisée en Allure Normalisée (rNP)
+        np = 1 / normalized_power
+    else:
+        np = normalized_power
+
+    return np
+
+
+def calculate_tss(df, FTP: float = 5.0):
+    """"""
+    if 'df_raw' in st.session_state:
+        sport_type = st.session_state['sport_type']
+
+    duration = len(df)
+
+    if sport_type != "Bike":
+        normalized_power = calculate_np(df['vap_allure'])
+        normalized_power = 1 / normalized_power
+        threshold_power = 1 / FTP
+    else:
+        normalized_power = calculate_np(df['puissance_watts'])
+        threshold_power = FTP
+
+    intensity_factor = normalized_power / threshold_power
+
+    if sport_type != "Bike":
+        tss = (duration * (intensity_factor**2)) / 3600 * 100
+    else:
+        tss = (duration * normalized_power * intensity_factor) / (threshold_power * 3600) * 100
+    return round(tss, 2)
 
 
 @st.cache_data
@@ -407,8 +463,6 @@ def process_activity(df_raw):
     # surface --> 0 route et 1--> chemin
     df_raw['surface'].replace({0: 'road', 1: 'trail'}, inplace=True)
 
-    # étude des outliers
-
     # Remettre à jour l'indexation du df
     df_raw.reset_index(drop=True,inplace=True)
 
@@ -417,7 +471,6 @@ def process_activity(df_raw):
     df_raw.dropna(axis='columns', how='all', inplace=True)
 
     return df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance
-
 
 def time_formatter(x, pos=None):
     """

@@ -9,7 +9,12 @@ import seaborn as sns
 import streamlit as st
 
 from strava_api import get_activity_data_from_api, get_last_activity_ids
-from utils.data_processing import allure_format, process_activity, time_formatter
+from utils.data_processing import (
+    allure_format,
+    calculate_tss,
+    process_activity,
+    time_formatter,
+)
 from utils.db_manager import get_db_connection, init_db, sql_df
 from utils.plotting import agg_sql_df_period
 
@@ -141,6 +146,9 @@ if 'df_raw' in st.session_state:
 
     st.divider()
     st.subheader("Evolution de la charge d'entraînement")
+
+    tss = calculate_tss(df=df_raw, FTP=5)
+    st.metric(label="Training Stress Score", value=tss)
 
     df_sql = sql_df()
     df_sql['year'] = pd.to_datetime(df_sql['activity_start_date']).dt.year
