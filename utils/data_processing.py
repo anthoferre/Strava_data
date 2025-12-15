@@ -1,11 +1,12 @@
 # data_processing.py
 
-import streamlit as st
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import linregress  
+import streamlit as st
+from scipy.stats import linregress
+
 
 def calculate_vap(vitesse_km_h: pd.Series, pente_perc: pd.Series) -> pd.Series:
     """Calcule la Vitesse Ajustée à la Pente (VAP)."""
@@ -17,13 +18,15 @@ def calculate_vap(vitesse_km_h: pd.Series, pente_perc: pd.Series) -> pd.Series:
     vitesse_vap = vitesse_km_h * (Cout_Plat / Cr)
     return vitesse_vap
 
+
 def normalisation_data(df, feature):
         """Normalisation des données entre 0 et 100%"""
         reset = df[feature] - df[feature].min()
         total = df[feature].max() - df[feature].min()
-        normalisation = df[feature] / total
+        normalisation = df[feature] / total * 100
         return reset, normalisation
-    
+
+
 def cutting_data_percent(df, feature, min_list=0, max_list=100, nb_bins=10):
     """Coupe les données"""
     step_list = (max_list - min_list) / nb_bins
@@ -65,9 +68,7 @@ def conversion_temps_total(feature_h, feature_min):
 
 
 
-def min_max_scaler(feature):
-    vmin = 0
-    vmax = 30/200 #30km/h pour 200bpm
+def min_max_scaler(feature, vmin, vmax):
     valeur_normalisee = (feature-vmin) / (vmax-vmin) * 100
     return valeur_normalisee
 
@@ -79,7 +80,7 @@ def calculer_limites_iqr(df, feature):
     # 1. Calcul des quartiles
     Q1 = df[feature].quantile(0.25)
     Q3 = df[feature].quantile(0.75)
-    
+
     # 2. Calcul de l'Écart Interquartile (IQR)
     IQR = Q3 - Q1
 
@@ -89,7 +90,7 @@ def calculer_limites_iqr(df, feature):
     # 4. Calcul des limites d'aberration
     limite_inf = Q1 - iqr_factor
     limite_sup = Q3 + iqr_factor
-    
+
     return limite_inf, limite_sup
 
 def drop_extreme_value(df, feature, FENETRE_LISSAGE):
@@ -101,41 +102,41 @@ def drop_extreme_value(df, feature, FENETRE_LISSAGE):
     df_temp[feature].interpolate(method='linear', inplace=True)
     feature_lissee = df_temp[feature].rolling(window=FENETRE_LISSAGE, center=True).mean()
     feature_lissee.fillna(df_temp[feature], inplace=True)
-    
+
     return feature_lissee
 
 @st.cache_data
 def calculate_all_records(df, feature_distance, feature_tps, distances_a_calculer):
     """
-    Calcule la meilleure performance (temps et allure) pour toutes les distances cibles 
+    Calcule la meilleure performance (temps et allure) pour toutes les distances cibles
     dans une activité, en utilisant la méthode du balayage et de l'interpolation.
-    
+
     Args:
         df (pd.DataFrame): Le DataFrame de l'activité.
         feature_distance (str): Nom de la colonne de distance (e.g., 'distance_effort_itra').
         feature_tps (str): Nom de la colonne de temps (e.g., 'temps_relatif_sec').
         distances_a_calculer (list): Liste des distances cibles en km (e.g., [5, 10, 21.1]).
-        
+
     Returns:
-        pd.DataFrame: DataFrame contenant 'Distance (km)', 'Meilleur Temps (min)', 
+        pd.DataFrame: DataFrame contenant 'Distance (km)', 'Meilleur Temps (min)',
                       et 'Allure (min/km)' pour les records trouvés.
     """
     all_records = []
-    
+
     # Récupérer les données brutes pour éviter de faire .loc[] répétitif
     distances_cumulees = df[feature_distance]
     temps_cumules = df[feature_tps]
-    
+
     # 1. Itération sur chaque distance cible (e.g., 5 km, 10 km)
     for distance_obj in distances_a_calculer:
-        
+
         # Vérification si l'activité est assez longue pour la distance cible
         if distance_obj > distances_cumulees.max():
             # Si la course n'est pas assez longue, passer à la distance suivante
-            continue 
+            continue
 
         segment_temps = []
-        
+
         # 2. Balayage de tous les points de départ possibles 'i'
         for i in range(len(df)):
             # Distance cible que l'on essaie d'atteindre : distance_au_point_i + distance_obj
@@ -147,32 +148,32 @@ def calculate_all_records(df, feature_distance, feature_tps, distances_a_calcule
 
             if not mask_fin.any():
                 # Si la fin de l'activité ne peut pas atteindre dist_cible, on arrête le balayage pour cette distance
-                break 
+                break
 
             # L'index j est le premier index où la condition est VRAIE
             j = np.argmax(mask_fin.values) + i + 1
-            
+
             # --- Interpolation ---
-            
+
             # Temps et distance des points j et j-1
             tps_j = temps_cumules.loc[j]
             tps_prec = temps_cumules.loc[j-1]
             dist_j = distances_cumulees.loc[j]
             dist_prec = distances_cumulees.loc[j-1]
-            
+
             # Temps estimé pour atteindre précisément dist_cible
             tps_interpole = tps_prec + (tps_j - tps_prec) * (dist_cible - dist_prec) / (dist_j - dist_prec)
-            
+
             # Temps total pour le segment [point i -> dist_cible]
             tps_segment = tps_interpole - temps_cumules.loc[i]
-            
+
             segment_temps.append(tps_segment)
-        
+
         # 3. Stockage du meilleur record pour cette distance_obj
         if segment_temps:
             best_time_min = min(segment_temps)
             pace_min_per_km = best_time_min / distance_obj
-            
+
             all_records.append({
                 'Distance (km)': distance_obj,
                 'Meilleur Temps (min)': best_time_min,
@@ -184,7 +185,7 @@ def calculate_all_records(df, feature_distance, feature_tps, distances_a_calcule
 
 def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
     """
-    Détermine votre profil d'endurance par régression (Courbe de Puissance) 
+    Détermine votre profil d'endurance par régression (Courbe de Puissance)
     et prédit le temps pour une nouvelle distance.
 
     Args:
@@ -196,29 +197,29 @@ def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
     Returns:
         float: Temps prédit en heures.
     """
-    
+
     # === ÉTAPE 1: PRÉPARATION DES DONNÉES ET TRANSFORMATION LOG ===
-    
+
     # Calcul de la vitesse moyenne (V = D / T)
     df_records['vitesse_km_h'] = df_records['distance_km'] / (df_records['best_time_min'] / 60)
-    
+
     # Application de la transformation logarithmique (Log-Log Plot)
     df_records['log_D'] = np.log(df_records['distance_km'])
     df_records['log_V'] = np.log(df_records['vitesse_km_h'])
-    
+
     # === ÉTAPE 2: RÉGRESSION LINÉAIRE (Détermination de votre profil 'a' et 'b') ===
-    
+
     # Régression: log(V) = a - b * log(D)
     # Dans scipy.stats.linregress, nous obtenons la pente et l'ordonnée à l'origine (intercept).
     # La pente est -b, l'intercept est a.
     slope, intercept, r_value, p_value, std_err = linregress(
-        df_records['log_D'], 
+        df_records['log_D'],
         df_records['log_V']
     )
-    
+
     a = intercept
     b = -slope # L'exposant b doit être positif, car la vitesse diminue quand la distance augmente.
-    
+
     print(f"--- Profil d'Endurance Personnalisé ---")
     print(f"Coefficient 'a' (Vitesse maximale théorique): {a:.4f}")
     print(f"Coefficient 'b' (Facteur de Dégradation): {b:.4f}")
@@ -229,20 +230,20 @@ def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
 
     # 1. Crée la figure Matplotlib
     fig, ax = plt.subplots(figsize=(8, 5))
-    
+
     # 2. Utilise regplot de Seaborn
     # 'regplot' trace les points de données et la ligne de régression linéaire.
     # Il calcule la régression directement entre 'log_D' et 'log_V'.
     sns.regplot(
-        x='log_D', 
-        y='log_V', 
-        data=df_records, 
+        x='log_D',
+        y='log_V',
+        data=df_records,
         ax=ax,
         ci=95, # Intervalle de confiance à 95% (l'ombre bleue autour de la droite)
         scatter_kws={'color': 'blue', 'alpha': 0.8},
         line_kws={'color': 'red', 'label': f'R²={r_value**2:.2f}'}
     )
-    
+
     # 3. Ajouter les statistiques calculées dans le titre ou les étiquettes
     ax.set_title(
         f"Courbe de Puissance (Log-Log Plot)\n"
@@ -252,13 +253,13 @@ def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
     ax.set_ylabel("Logarithme de la Vitesse (ln(V))")
     ax.legend()
     ax.grid(True, linestyle='--', alpha=0.6)
-    
+
     # Ajoutez le point de prédiction (Étape 3) si vous le souhaitez
-    
-    
-    
+
+
+
     # === ÉTAPE 3: PRÉDICTION ===
-    
+
     # 1. Calcul de log(D) pour la nouvelle distance
     if new_denivele_pos is not None:
         new_distance_itra = new_distance_km + (new_denivele_pos/100)
@@ -266,16 +267,16 @@ def fit_and_predict_time(df_records, new_distance_km, new_denivele_pos):
         new_distance_itra = new_distance_km
 
     log_D_new = np.log(new_distance_itra)
-    
+
     # 2. Prédiction de log(V)
     log_V_pred = a - b * log_D_new # Vitesse en km/h
-    
+
     # 3. Inversion du logarithme pour obtenir Vitesse_pred
     V_pred_kmh = np.exp(log_V_pred)
-    
+
     # 4. Calcul du Temps (T = D / V)
     Time_pred_hours = new_distance_itra / V_pred_kmh
-    
+
     return Time_pred_hours, fig
 
 @st.cache_data
@@ -303,12 +304,12 @@ def process_activity(df_raw):
     # Remettre à zéro les colonnes 'temps_relatif_sec' et 'distance_m'
     df_raw['temps_relatif_sec'] -= df_raw['temps_relatif_sec'].min()
     df_raw['distance_m'] -= df_raw['distance_m'].min()
-    
+
 
     # Application de la normalisation pour le temps et la distance
     df_raw['temps_reel_s'], df_raw['temps_normalisee'] = normalisation_data(df_raw, 'temps_relatif_sec') # en secondes
     df_raw['distance_reelle_m'], df_raw['distance_normalisee'] = normalisation_data(df_raw,'distance_m') # en mètres
-    
+
     # Conversion des distances et temps dans les différentes unités possibles
     df_raw['temps_h'] = df_raw['temps_reel_s'] / 3600
     df_raw['temps_min'] = df_raw['temps_reel_s'] / 60
@@ -362,22 +363,24 @@ def process_activity(df_raw):
     else:
         pass # pas de données de Puissance
 
-
     # Application de la coupe des données pour la distance et la pente_lissee
-    
 
     df_raw['tranche_distance'] = cutting_data_percent(df=df_raw, feature='distance_normalisee')
     df_raw['tranche_pente'] = cutting_data_percent(df=df_raw, feature='pente_lissee', min_list=-50, max_list=50)
-    
+
     # Calcul de l'efficacité de course
     df_raw['efficacite_course'] = df_raw['vitesse_km_h_lissee'] / df_raw['frequence_cardiaque']
-    df_raw['efficacite_course_normalisee'] = min_max_scaler(df_raw['efficacite_course'])
+    df_raw['efficacite_course_normalisee'] = min_max_scaler(df_raw['efficacite_course'], vmin=0, vmax=30/200)
 
     # Calcul de la VAM VItesse Ascensionnelle en Montée
     df_raw['vam'] = (df_raw['altitude_m'].diff() / df_raw['temps_h'].diff()).fillna(0)
 
     # Calcul de l'Allure Ajustée selon la Pente
     df_raw['vap_allure'] = calculate_vap(df_raw['allure_min_km'],df_raw['pente_lissee'])
+
+    # Calcul de l'efficacité de course en fonction de la vap_allure
+    df_raw['efficacite_course_vap'] = df_raw['frequence_cardiaque'] / df_raw['vap_allure']
+    df_raw['efficacite_course_vap_normalisee'] = min_max_scaler(df_raw['efficacite_course_vap'], vmin=0, vmax=200/2)
 
     # Calcul de la Différence de vitesse
     df_raw['diff_allure'] = df_raw['allure_min_km'] - df_raw['vap_allure']
@@ -392,6 +395,11 @@ def process_activity(df_raw):
 
     # Calcul de la distance d'effort avec formule itra basique 100m d+ = 1km en + d'effort
     df_raw['distance_effort_itra'] = df_raw['distance_km'] + (df_raw['d_pos_cum'] / 100)
+
+    # Calcul du score de la performance
+    df_raw['allure_moy_equiv_plat'] = df_raw['temps_min'] / df_raw['distance_effort_itra']
+    df_raw['score_strava'] = df_raw['frequence_cardiaque'].expanding().mean() / df_raw['allure_moy_equiv_plat']
+    df_raw['vap_allure_cv'] = df_raw['vap_allure'].expanding().std() / df_raw['vap_allure'].expanding().mean()
 
     # Calcul du temps total au format hh:mm:ss
     temps_total_formatte = conversion_temps_total(df_raw['temps_h'], df_raw['temps_min'])
@@ -408,7 +416,7 @@ def process_activity(df_raw):
     df_raw.drop(columns=['vitesse_lissee','vitesse_km_h','distance_m','latlng','resting','outlier'], inplace=True)
     df_raw.dropna(axis='columns', how='all', inplace=True)
 
-    return df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance  
+    return df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance
 
 
 def time_formatter(x, pos=None):
@@ -420,10 +428,10 @@ def time_formatter(x, pos=None):
     heures = int(tps // 60)
     minutes = int(np.floor(tps % 60))
     seconds = int(np.floor((tps % 1) * 60))
-    
+
     # Gérer le cas où l'arrondi fait passer les secondes à 60
     if seconds == 60:
         minutes += 1
         seconds = 0
-        
+
     return f"{heures:02d}:{minutes:02d}:{seconds:02d}"

@@ -1,8 +1,18 @@
 # Etude_Graphique.py
 
-import streamlit as st
+import matplotlib.pyplot as plt
 import numpy as np
-from utils.plotting import plot_boxplot, plot_jointplot, coefficient_variation, crosstab
+import seaborn as sns
+import streamlit as st
+
+from utils.plotting import (
+    calculate_vap_curve,
+    coefficient_variation,
+    crosstab,
+    plot_boxplot,
+    plot_jointplot,
+    plot_vap_curve,
+)
 
 st.title("Visualisation des indicateurs de la performance")
 
@@ -13,9 +23,8 @@ if 'df_raw' in st.session_state:
     activity_date = st.session_state['activity_date']
 
     list_col_all = df_raw.columns.tolist()
-    list_col_num = df_raw.select_dtypes([int,float]).columns.tolist()
-    list_col_cat = df_raw.select_dtypes([object,'category']).columns.tolist()
-
+    list_col_num = df_raw.select_dtypes([int, float]).columns.tolist()
+    list_col_cat = df_raw.select_dtypes([object, 'category']).columns.tolist()
 
     with st.expander("Etude heatmap", expanded=True):
         st.subheader("Paramètres")
@@ -42,8 +51,8 @@ if 'df_raw' in st.session_state:
             aggfunc_option = st.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
             aggfunc = aggfunc_dict[aggfunc_option]
             st.subheader(f"{aggfunc_option} de la variable '{feature_option}' en fonction de la distance et de la pente_lissee")
-            crosstab(df_raw,feature_option,aggfunc=aggfunc, vmax=vmax_option)
-        
+            crosstab(df_raw, feature_option, aggfunc=aggfunc, vmax=vmax_option)
+
     st.divider()
     with st.expander("BoxPlot"):
         col_var_x, col_var_y = st.columns(2)
@@ -58,9 +67,9 @@ if 'df_raw' in st.session_state:
         if var_x is None or var_y is None:
             st.info("Sélectionne les deux variables pour le graphique")
         elif var_hue is not None:
-            plot_boxplot(df_raw,var_x,var_y, var_hue)
+            plot_boxplot(df_raw, var_x, var_y, var_hue)
         else:
-            plot_boxplot(df_raw,var_x,var_y)
+            plot_boxplot(df_raw, var_x, var_y)
 
     st.divider()
 
@@ -70,7 +79,7 @@ if 'df_raw' in st.session_state:
         col_var_x, col_var_y = st.columns(2)
         with col_var_x:
             var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_num, key='var_x_joint_plot')
-            list_col_num_var_y = [col for col in list_col_num if col != var_x ]
+            list_col_num_var_y = [col for col in list_col_num if col != var_x]
         with col_var_y:
             var_y = st.selectbox("Variable en ordonnée", options=[None] + list_col_num_var_y, key='var_y_joint_plot')
         var_hue = None
@@ -80,9 +89,27 @@ if 'df_raw' in st.session_state:
         if var_x is None or var_y is None:
             st.info("Sélectionne les deux variables pour le graphique")
         elif var_hue is not None:
-            plot_jointplot(df_raw, var_x, var_y,var_hue)
+            plot_jointplot(df_raw, var_x, var_y, var_hue)
         else:
             plot_jointplot(df_raw, var_x, var_y)
+
+    st.divider()
+
+    with st.expander("Record d'Allure Moyenne Ajustée"):
+        interval_sec = [
+            1, 5, 10, 30, 60,
+            120, 300, 600, 1200, 1800,
+            3600, 5400, 7200, 10800, 14400, 18000, 21600, 25200
+        ]
+
+        max_duration = len(df_raw)
+        interval_sec = [i for i in interval_sec if i <= max_duration]
+        if max_duration not in interval_sec:
+            interval_sec.append(max_duration)
+
+        vap_curve = calculate_vap_curve(df=df_raw, intervals=interval_sec)
+        plot_vap_curve(vap_curve)
+
 
 else:
     st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 Charger l'activité'** pour commencer l'analyse.")

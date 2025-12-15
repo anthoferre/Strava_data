@@ -1,21 +1,22 @@
 # plotting.py
 
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import streamlit as st
-from matplotlib.ticker import MultipleLocator
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import streamlit as st
+from matplotlib.ticker import FuncFormatter, MultipleLocator
+
 
 def coefficient_variation(feature):
     """Calcule le Coefficient de Variation (CV) : écart-type / moyenne."""
     mean = feature.mean()
     std = feature.std()
-    
+
     # Évite la division par zéro si la moyenne est 0
     if mean == 0:
-        return 0 
-    
+        return 0
+
     # Retourne le CV (souvent affiché en pourcentage si besoin, ici juste le ratio)
     return std / mean
 
@@ -27,7 +28,7 @@ def get_format(feature, aggfunc):
         return '.2f'
     elif aggfunc is coefficient_variation:
         return '.2f'
-    return 'd'  
+    return 'd'
 
 def crosstab(df, feature, aggfunc, vmax=None,):
     fmt_heatmap = get_format(feature,aggfunc)
@@ -42,7 +43,7 @@ def crosstab(df, feature, aggfunc, vmax=None,):
                 annot_kws={'fontsize': 12})
     st.pyplot(fig)
     plt.close(fig)
-    
+
 def plot_jointplot(df,x_var,y_var, hue_var=None):
         kwargs = {
             'data': df,
@@ -67,14 +68,14 @@ def plot_boxplot(df,x_var,y_var, hue_var=None):
         }
     if hue_var is not None:
         kwargs['hue'] = hue_var
-        
+
     fig, ax = plt.subplots(figsize=(12,5))
     getattr(sns,'boxplot')(**kwargs)
     plt.xticks(rotation=45, ha='right')
     st.pyplot(fig)
     plt.close(fig)
 
-@st.cache_data   
+@st.cache_data
 def plot_montees(df, feature_distance, feature_altitude, var_montee):
     """Trace la courbe d'altitude et celles des montées pour voir si la détection est bonne"""
     fig,ax1 = plt.subplots()
@@ -108,11 +109,11 @@ def agg_sql_df_period(df, period, feature, sport_type_list):
         distance_value = df_agg[feature].iloc[i]
         # Appliquer la couleur basée sur la normalisation
         bar.set_color(scalar_mappable.to_rgba(distance_value))
-    dict_month = {1: 'Janv.', 2: 'Févr.', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 7: 'Juil.', 8: 'Août', 
+    dict_month = {1: 'Janv.', 2: 'Févr.', 3: 'Mars', 4: 'Avril', 5: 'Mai', 6: 'Juin', 7: 'Juil.', 8: 'Août',
                     9: 'Sept.', 10: 'Oct.', 11: 'Nov.', 12: 'Déc.'}
     month_number = df['month'].unique().tolist()
     month_labels = [dict_month[m] for m in month_number]
-    
+
     if period == 'week':
         ax.xaxis.set_major_locator(MultipleLocator(3))
     elif period =='month':
@@ -122,3 +123,52 @@ def agg_sql_df_period(df, period, feature, sport_type_list):
     # 5. Ajouter la barre de couleur (Colorbar)
     cbar = fig.colorbar(scalar_mappable, ax=ax, orientation='vertical', pad=0.03)
     return fig
+
+
+def calculate_vap_curve(df: pd.DataFrame, intervals: list):
+    """Calculer le Record d'Allure moyen par durée"""
+    vap_results = {}
+    vap_series = df['vap_allure']
+    for duration in intervals:
+        if duration == 1:
+            best_vap = vap_series.min()
+        else:
+            rolling_avg = vap_series.rolling(window=duration, min_periods=duration).mean()
+            best_vap = rolling_avg.min()
+        vap_results[duration] = best_vap
+    return vap_results
+
+
+def time_formatter(x, pos):
+    """Convertit la valeur décimale de l'allure (ex: 4.5) en mm:ss (ex: 04:30)."""
+    minutes = int(x)
+    seconds = int((x - minutes) * 60)
+    return f'{minutes:02d}:{seconds:02d}'
+
+
+def plot_vap_curve(vap):
+    vap_df = pd.DataFrame(
+        list(vap.items()),
+        columns=['Durée(s)', 'Allure_Min_Moy']
+    )
+
+    fig, ax = plt.subplots()
+    sns.lineplot(data=vap_df, x='Durée(s)', y='Allure_Min_Moy', marker='o', linewidth=3)
+    plt.xscale('log')
+    ax.invert_yaxis()
+    duration_labels = [
+        '1h30' if s == 5400
+        else f'{s//3600}h' if s >= 3600
+        else f'{s//60}m' if s >= 60
+        else f'{s}s' for s in vap_df['Durée(s)']
+    ]
+    plt.title("Profil de performance en trail - Record d'Allure ajustée moyenne (VAP)")
+    plt.ylabel("Allure Moyenne (min/km)")
+    plt.xlabel("Durée de l'effort (échelle logarithmique)")
+    plt.xticks(vap_df['Durée(s)'], duration_labels, rotation=45, fontsize=6)
+    ax.yaxis.set_major_formatter(FuncFormatter(time_formatter))
+    plt.yticks(fontsize=6)
+    plt.grid(True, which="both", linestyle='--', alpha=0.5)
+    sns.despine(left=True, bottom=True)
+    st.pyplot(fig)
+    plt.close(fig)
