@@ -1,18 +1,11 @@
 # Etude_Graphique.py
 
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import streamlit as st
 
-from utils.plotting import (
-    calculate_vap_curve,
-    coefficient_variation,
-    crosstab,
-    plot_boxplot,
-    plot_jointplot,
-    plot_vap_curve,
-)
+from utils.plotting import (calculate_vap_curve, coefficient_variation,
+                            crosstab, plot_boxplot, plot_jointplot,
+                            plot_vap_curve)
 
 st.title("Visualisation des indicateurs de la performance")
 

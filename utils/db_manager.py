@@ -1,8 +1,10 @@
-import streamlit as st
-import sqlite3
-import pandas as pd
 import ast
+import sqlite3
 from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+
 
 @st.cache_resource
 def get_db_connection():
@@ -12,6 +14,7 @@ def get_db_connection():
     """
     conn = sqlite3.connect('strava_cache.db', check_same_thread=False)
     return conn
+
 
 def _add_missing_column(conn, column_name, column_type):
     """Fonction utilitaire pour ajouter une colonne si elle n'existe pas."""
@@ -23,8 +26,8 @@ def _add_missing_column(conn, column_name, column_type):
     except sqlite3.OperationalError as e:
         # La colonne existe déjà ou autre erreur (ex: si la DB est vide, pas grave)
         if "duplicate column name" not in str(e):
-             # Afficher l'erreur si elle n'est pas due à une colonne dupliquée
-             pass
+            # Afficher l'erreur si elle n'est pas due à une colonne dupliquée
+            pass
 
 
 def init_db():
@@ -59,51 +62,60 @@ def init_db():
             PRIMARY KEY (activity_date, sport_type, distance_km)
         )
     ''')
-    
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS curve_record (
+            activity_date TEXT,
+            sport_type TEXT,
+            duration REAL,
+            record REAL,
+            PRIMARY KEY (activity_date, sport_type, duration)
+        )
+    ''')
+
     # --- AJOUT DES NOUVELLES COLONNES DE PROGRESSION (Mise à jour du schéma) ---
     _add_missing_column(conn, 'allure_vap_moy', 'REAL')
     _add_missing_column(conn, 'score_effort', 'REAL')
     _add_missing_column(conn, 'score_effort_efficacite', 'REAL')
-    
+
     conn.commit()
+
 
 def save_activity_to_db(activity_id, activity_name, sport_type, df, activity_start_date):
     """Sauvegarde un DataFrame d'activité et ses métriques agrégées dans la DB (INSERT OR REPLACE)."""
     conn = get_db_connection()
-    
+
     # 1. Calcul des métriques agrégées de base à stocker
     total_distance_m = df['distance_m'].iloc[-1] if 'distance_m' in df.columns and not df['distance_m'].empty else 0
     total_duration_sec = df['temps_relatif_sec'].iloc[-1] if 'temps_relatif_sec' in df.columns and not df['temps_relatif_sec'].empty else 0
-    
+
     # Estimation du dénivelé positif
     denivele_positif = df['altitude_m'].diff().clip(lower=0).sum() if 'altitude_m' in df.columns else 0.0
 
     # 2. Convertir le DataFrame en JSON pour le stockage des streams (détails)
     df_json = df.to_json(orient='split', date_format='iso')
     timestamp = datetime.now().timestamp()
-    
+
     # Les colonnes de progression calculées seront ajoutées par la fonction update_activity_metrics_to_db
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO activities_cache 
-        (activity_id, activity_name, sport_type, dataframe_json, timestamp_cache, activity_start_date, total_distance_km, total_duration_h, total_elevation_gain_m)
+        INSERT OR REPLACE INTO activities_cache
+        (activity_id, activity_name, sport_type, dataframe_json, timestamp_cache,
+         activity_start_date, total_distance_km, total_duration_h, total_elevation_gain_m)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        activity_id, 
-        activity_name, 
-        sport_type, 
-        df_json, 
-        timestamp, 
-        activity_start_date, 
-        total_distance_m / 1000, 
-        total_duration_sec / 3600, 
+        activity_id,
+        activity_name,
+        sport_type,
+        df_json,
+        timestamp,
+        activity_start_date,
+        total_distance_m / 1000,
+        total_duration_sec / 3600,
         denivele_positif
     ))
     conn.commit()
 
-# --- NOUVELLE FONCTION POUR AJOUTER LES SCORES CALCULÉS ---
-
-# (Le reste du code de db_manager.py est ici, incluant get_db_connection)
 
 def update_activity_metrics_to_db(metrics_dict):
     """
@@ -111,52 +123,50 @@ def update_activity_metrics_to_db(metrics_dict):
     La clé 'id' (activity_id Strava) est utilisée pour la clause WHERE.
 
     Args:
-        metrics_dict (dict): Dictionnaire contenant les clés/valeurs des métriques à sauvegarder. 
+        metrics_dict (dict): Dictionnaire contenant les clés/valeurs des métriques à sauvegarder.
                              DOIT contenir la clé 'id'.
     """
     if 'activity_id' not in metrics_dict:
         # Ceci est un cas d'erreur critique, l'ID est la clé principale.
         raise ValueError("metrics_dict doit contenir la clé 'id' pour la mise à jour en base de données.")
-        
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # 1. Préparation des clauses SET (pour les colonnes à mettre à jour)
     # Exclure l'ID qui sert de condition WHERE
     set_keys = [key for key in metrics_dict.keys() if key != 'activity_id']
     set_clauses = ', '.join([f"{key} = ?" for key in set_keys])
-    
+
     # 2. Préparation des valeurs pour les clauses SET
     set_values = [metrics_dict[key] for key in set_keys]
-    
+
     # 3. Préparation de la valeur pour la clause WHERE
     activity_id = metrics_dict['activity_id']
-    
+
     # 4. Fusionner les valeurs: (valeurs SET) + (valeur WHERE)
-    all_values = set_values + [activity_id] 
-    
+    all_values = set_values + [activity_id]
+
     # 5. Construction de la requête finale (Utilisation de l'ID pour la mise à jour)
     sql_query = f'''
-        UPDATE activities_cache 
-        SET {set_clauses} 
+        UPDATE activities_cache
+        SET {set_clauses}
         WHERE activity_id = ?
     '''
-    
+
     try:
         # Exécuter avec le tuple de toutes les valeurs
         cursor.execute(sql_query, all_values)
         conn.commit()
     except Exception as e:
-        conn.rollback() # On ne rollback qu'en cas d'erreur
+        conn.rollback()  # On ne rollback qu'en cas d'erreur
         raise Exception(f"Erreur d'exécution SQL: {e}")
     finally:
         # NOTE: Si vous fermez la connexion ici, assurez-vous de la rouvrir à chaque appel.
         # Sinon, laissez le get_db_connection gérer une connexion persistante.
         pass
-        
-    
-    # Suppression du conn.rollback() inutile après conn.commit()
 
+    # Suppression du conn.rollback() inutile après conn.commit()
 
 
 def load_activity_from_db(activity_id):
@@ -166,42 +176,43 @@ def load_activity_from_db(activity_id):
     # On sélectionne uniquement les colonnes nécessaires pour l'analyse détaillée
     cursor.execute('''
         SELECT activity_name, sport_type, dataframe_json, activity_start_date
-        FROM activities_cache 
+        FROM activities_cache
         WHERE activity_id = ?
     ''', (activity_id,))
-    
+
     result = cursor.fetchone()
     if result:
         activity_name, sport_type, df_json, activity_start_date = result
         df = pd.read_json(df_json, orient='split')
-        
+
         # S'assurer que les colonnes complexes comme latlng sont des listes si nécessaire
         if 'latlng' in df.columns:
             try:
                 df['latlng'] = df['latlng'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) and x.startswith('[') else x)
             except:
-                pass 
-                
+                pass
+
         start_date_display = activity_start_date.split('T')[0] if activity_start_date else 'Inconnue'
         st.sidebar.success(f"Cache DB : Activité **{activity_name}** chargée (Début: {start_date_display}).")
         return df, activity_name, sport_type, activity_start_date
-    
+
     return None, None, None, None
+
 
 @st.cache_data
 def extract_metrics_from_cache(df_cache_in):
     """
-    Extrait les métriques clés *directement* des colonnes agrégées du cache. 
+    Extrait les métriques clés *directement* des colonnes agrégées du cache.
     Ceci est optimisé pour le tableau de bord de progression.
     """
     data_list = []
-    
+
     # On s'assure d'avoir les nouvelles colonnes nécessaires pour le tableau de bord
     required_cols = ['total_distance_km', 'allure_vap_moy', 'score_effort', 'score_effort_efficacite']
     if not all(col in df_cache_in.columns for col in required_cols):
         # Si des colonnes critiques manquent, demander à l'utilisateur de réexécuter l'initialisation
         st.warning("Structure du cache obsolète. Relancez l'application ou l'initialisation de la DB pour mettre à jour le schéma.")
-        return pd.DataFrame() 
+        return pd.DataFrame()
 
     for index, row in df_cache_in.iterrows():
         try:
@@ -224,8 +235,9 @@ def extract_metrics_from_cache(df_cache_in):
             # Gérer les lignes incomplètes silencieusement pour ne pas bloquer le tableau de bord
             # st.error(f"Erreur lors de l'extraction de l'activité {row['activity_id']}: {e}")
             continue
-    
+
     return pd.DataFrame(data_list)
+
 
 def sql_df():
     query = """SELECT * FROM activities_cache"""
@@ -233,61 +245,62 @@ def sql_df():
     df_sql = pd.read_sql_query(sql=query, con=conn)
     return df_sql
 
+
 def load_activity_records_by_key(activity_date, sport_type):
     """
-    Charge les records pour une activité spécifique (date et type de sport) 
+    Charge les records pour une activité spécifique (date et type de sport)
     depuis la base de données.
 
     Args:
-        activity_date (str ou datetime): Date de l'activité (doit correspondre 
+        activity_date (str ou datetime): Date de l'activité (doit correspondre
                                          au format stocké dans la DB).
         sport_type (str): Type de sport.
 
     Returns:
-        pd.DataFrame ou None: DataFrame contenant les records trouvés, ou None 
+        pd.DataFrame ou None: DataFrame contenant les records trouvés, ou None
                               si aucun record n'est trouvé.
     """
 
     # 1. Préparation de la requête
-    # Nous utilisons des placeholders (?) pour prévenir les injections SQL 
+    # Nous utilisons des placeholders (?) pour prévenir les injections SQL
     # et pour passer les paramètres en toute sécurité.
-    query = f"""
-        SELECT 
+    query = """
+        SELECT
             distance_km, best_time_min, activity_date, sport_type
-        FROM 
+        FROM
             performance_records
-        WHERE 
+        WHERE
             activity_date = ? AND sport_type = ?
     """
-    
+
     # Les paramètres doivent être fournis comme un tuple
-    params = (str(activity_date), sport_type) 
-    
-    
+    params = (str(activity_date), sport_type)
+
     try:
         # 2. Connexion à la base de données
         conn = get_db_connection()
-        
+
         # 3. Exécution de la requête et lecture dans un DataFrame Pandas
         # pd.read_sql_query est parfait pour cette tâche
         df_records = pd.read_sql_query(
-            sql=query, 
-            con=conn, 
-            params=params # Passage sécurisé des paramètres
+            sql=query,
+            con=conn,
+            params=params  # Passage sécurisé des paramètres
         )
-        
+
         # 4. Vérification du résultat
         if df_records.empty:
             return None
         else:
             return df_records
-            
+
     except sqlite3.Error as e:
         print(f"Erreur SQLite lors du chargement des records: {e}")
         return None
-        
+
     finally:
         pass
+
 
 def save_performance_records(df_results, sport_type, activity_date):
     """
@@ -296,10 +309,10 @@ def save_performance_records(df_results, sport_type, activity_date):
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # 1. Préparer les données
     # Assurez-vous que le DataFrame a les colonnes attendues (Distance (km), Meilleur Temps (sec), Allure (sec/km))
-    
+
     # Colonnes du DataFrame de résultats que nous allons renommer pour la DB
     df_to_save = df_results.rename(columns={
         'Distance (km)': 'distance_km',
@@ -309,10 +322,10 @@ def save_performance_records(df_results, sport_type, activity_date):
 
     # 2. Ajout des colonnes supplémentaires (date et sport_type)
     df_to_save['activity_date'] = activity_date
-    df_to_save['sport_type'] = sport_type 
+    df_to_save['sport_type'] = sport_type
 
     sql_query = """
-        INSERT OR REPLACE INTO performance_records 
+        INSERT OR REPLACE INTO performance_records
         (activity_date, sport_type, distance_km, best_time_min, pace_min_per_km)
         VALUES (?, ?, ?, ?, ?)
     """
@@ -327,38 +340,94 @@ def save_performance_records(df_results, sport_type, activity_date):
             row['best_time_min'],
             row['pace_min_per_km']
         )
-        
+
         try:
             # Exécution de la requête : Si la clé primaire existe, elle remplace l'ancienne ligne.
             cursor.execute(sql_query, data_tuple)
         except Exception as e:
-            # st.error(f"Erreur d'insertion pour le record {row['sport_type']} {row['distance_km']} km: {e}")
-            conn.rollback() # Annule les insertions en cas d'erreur
-            return # Arrête le processus en cas d'échec critique
+            st.error(f"Erreur d'insertion pour le record {row['sport_type']} {row['distance_km']} km: {e}")
+            conn.rollback()  # Annule les insertions en cas d'erreur
+            return  # Arrête le processus en cas d'échec critique
 
     # Validation de toutes les insertions
     conn.commit()
+
 
 def load_performance_records():
     """
     Charge tous les records de la table performance_records dans un DataFrame Pandas.
     """
     conn = get_db_connection()
-    
+
     # Requête SQL pour sélectionner toutes les colonnes de la table
     sql_query = "SELECT * FROM performance_records"
-    
+
     try:
         # pd.read_sql_query est la méthode recommandée pour lire des données SQL dans Pandas
         df_records = pd.read_sql_query(sql_query, conn)
-        
+
         # Le DataFrame est prêt à être retourné et analysé
         return df_records
-        
+
     except pd.io.sql.DatabaseError as e:
         # Ceci gère le cas où la table n'existe pas encore (première exécution)
         st.warning(f"La table 'performance_records' n'existe pas encore ou est inaccessible : {e}")
-        return pd.DataFrame() # Retourne un DataFrame vide
+        return pd.DataFrame()  # Retourne un DataFrame vide
     except Exception as e:
         st.error(f"Erreur inattendue lors du chargement des records : {e}")
+        return pd.DataFrame()
+
+
+def save_curve_record(df_curve, sport_type, activity_date):
+    """Sauvegarder les données de record de courbe dans la table curve_record."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    required_cols = ['duration', 'record']
+    if not all(col in df_curve.columns for col in required_cols):
+        st.error(f"Le dataframe de courbe doit contenir les colonnes {required_cols}")
+        return
+
+    df_to_save = df_curve.copy()
+    df_to_save['activity_date'] = activity_date
+    df_to_save['sport_type'] = sport_type
+
+    sql_query = """
+        INSERT OR REPLACE INTO curve_record
+        (activity_date, sport_type, duration, record)
+        VALUES (?, ?, ?, ?)
+    """
+
+    for index, row in df_to_save.iterrows():
+        data_tuple = (
+            row['activity_date'],
+            row['sport_type'],
+            float(row['duration']),
+            float(row['record'])
+        )
+
+        try:
+            cursor.execute(sql_query, data_tuple)
+        except Exception as e:
+            st.error(f"Erreur d'insertion pour le record de courbe à durée {row['duration']} : {e}")
+            conn.rollback()
+            return
+
+    conn.commit()
+    st.info(f"Records de courbe sauvegardés pour l'activité du {activity_date} {sport_type}.")
+
+
+def load_curve_records():
+    """Charge tous les records de la table curve_record dans un dataframe pandas"""
+    conn = get_db_connection()
+    sql_query = "SELECT * FROM curve_record"
+
+    try:
+        df_records =  pd.read_sql_query(sql_query, conn)
+        return df_records
+    except pd.io.sql.DatabaseError as e:
+        st.warning(f"La table 'curve_record' n'existe pas encore ou est inaccessible : {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erreur inattendue lors du chargement des records de courbe : {e}")
         return pd.DataFrame()
