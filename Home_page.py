@@ -19,6 +19,39 @@ from utils.db_manager import get_db_connection, init_db, sql_df
 from utils.plotting import agg_sql_df_period
 
 st.set_page_config(layout='wide')
+
+st.markdown(f"""
+    <style>
+    /* Titre principal en Orange Strava */
+    h1 {{
+        color: #FC4C02;
+    }}
+
+    /* Bouton 'Charger l'activité' personnalisé */
+    div.stButton > button:first-child {{
+        background-color: #FC4C02;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: bold;
+    }}
+
+    /* Fond légèrement grisé pour les containers */
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: #fcfcfc;
+    }}
+
+    /* Style pour les métriques */
+    [data-testid="stMetricValue"] {{
+        color: #FC4C02;
+    }}
+
+    .stProgress > div > div > div > div {{
+        background-color: #FC4C02;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- Configuration et Initialisation des Secrets ---
 # Stocker les secrets en session state pour une vérification rapide
 if 'CLIENT_ID' not in st.session_state:
@@ -128,27 +161,32 @@ if 'df_raw' in st.session_state:
     sport_icon = sport_icon_map.get(sport_type, '❓')
     st.markdown(f"**Type d'activité :** *{sport_type}* {sport_icon}")
 
-    st.subheader("Indicateurs généraux de l'activité")
+    with st.container(border=True):
+        st.subheader("Indicateurs généraux de l'activité")
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
-        st.metric("Distance", value=f"{np.round(df_raw['distance_km'].max(),1)} km", border=True)
-    with col2:
-        st.metric("Dénivelé +", value=f"{int(df_raw['d_pos_cum'].max())}m", border=True)
-    with col3:
-        st.metric("Temps", value=f"{time_formatter(df_raw['temps_min'].max())}", border=True)
-    with col4:
-        st.metric("Allure Moyenne", value=f"{allure_format(df_raw['allure_min_km'].mean())}", border=True)
-    with col5:
-        st.metric("VAP Moyenne", value=f"{allure_format(df_raw['vap_allure'].mean())}", border=True, help="Allure Ajustée à la Pente")
-    with col6:
-        st.metric("FC Moyenne", value=f"{int(df_raw['frequence_cardiaque'].mean())} bpm", border=True)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        with col1:
+            st.metric("📏 Distance", value=f"{np.round(df_raw['distance_km'].max(),1)} km")
+        with col2:
+            st.metric("⛰️ Dénivelé +", value=f"{int(df_raw['d_pos_cum'].max())}m")
+        with col3:
+            st.metric("⏱️ Temps", value=f"{time_formatter(df_raw['temps_min'].max())}")
+        with col4:
+            st.metric("🏃 Allure Moyenne", value=f"{allure_format(df_raw['allure_min_km'].mean())}")
+        with col5:
+            st.metric("📈 VAP Moyenne", value=f"{allure_format(df_raw['vap_allure'].mean())}", help="Allure Ajustée à la Pente")
+        with col6:
+            st.metric("❤️ FC Moyenne", value=f"{int(df_raw['frequence_cardiaque'].mean())} bpm")
 
-    st.divider()
-    st.subheader("Evolution de la charge d'entraînement")
-
-    tss = calculate_tss(df=df_raw, FTP=5)
-    st.metric(label="Training Stress Score", value=tss)
+    with st.container(border=True):
+        st.subheader("Charge d'entraînement")
+        c1, c2 = st.columns([1,3])
+        with c1:
+            tss = calculate_tss(df=df_raw, FTP=5)
+            st.metric(label="Training Stress Score", value=tss)
+        with c2:
+            level = "Faible" if tss < 50 else "Modérée" if tss < 150 else "Elevée" if tss < 300 else "Intense"
+            st.progress(min(tss/600, 1.0), text=f"Charge d'entrainement: {level}")
 
     df_sql = sql_df()
     df_sql['year'] = pd.to_datetime(df_sql['activity_start_date']).dt.year
@@ -162,25 +200,26 @@ if 'df_raw' in st.session_state:
                                         options=list_of_sport_type, default=['Hike','Run','TrailRun'])
 
 
-    col_dist_week, col_d_pos_week = st.columns(2)
-    with col_dist_week:
-        fig = agg_sql_df_period(df_sql, period='week', feature='total_distance_km', sport_type_list=sport_type_options)
-        st.pyplot(fig)
-        plt.close(fig)
-    with col_d_pos_week:
-        fig = agg_sql_df_period(df_sql, period='week', feature='total_elevation_gain_m', sport_type_list=sport_type_options)
-        st.pyplot(fig)
-        plt.close(fig)
 
-    col_dist_month, col_d_pos_month = st.columns(2)
-    with col_dist_month:
-        fig = agg_sql_df_period(df_sql, period='month', feature='total_distance_km', sport_type_list=sport_type_options)
-        st.pyplot(fig)
-        plt.close(fig)
-    with col_d_pos_month:
-        fig = agg_sql_df_period(df_sql, period='month', feature='total_elevation_gain_m', sport_type_list=sport_type_options)
-        st.pyplot(fig)
-        plt.close(fig)
+    with st.container(border=True):
+        st.subheader("📊 Statistiques hebdomadaires")
+        col_dist_week, col_d_pos_week = st.columns(2)
+        with col_dist_week:
+            fig = agg_sql_df_period(df_sql, period='week', feature='total_distance_km', sport_type_list=sport_type_options)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        with col_d_pos_week:
+            fig = agg_sql_df_period(df_sql, period='week', feature='total_elevation_gain_m', sport_type_list=sport_type_options)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    with st.container(border=True):
+        st.subheader("📊 Statistiques mensuelles")
+        col_dist_month, col_d_pos_month = st.columns(2)
+        with col_dist_month:
+            fig = agg_sql_df_period(df_sql, period='month', feature='total_distance_km', sport_type_list=sport_type_options)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        with col_d_pos_month:
+            fig = agg_sql_df_period(df_sql, period='month', feature='total_elevation_gain_m', sport_type_list=sport_type_options)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 else:
     st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 Charger l'activité'** pour  \

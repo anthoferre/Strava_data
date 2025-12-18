@@ -3,8 +3,12 @@ import streamlit as st
 
 # Assurez-vous d'avoir plot_vap_curve_comparative et plot_vap_curve (ou la renommer)
 from utils.db_manager import init_db, load_curve_records, save_curve_record
-from utils.plotting import (calculate_vap_curve, plot_vap_curve,
-                            plot_vap_curve_comparative, time_formatter)
+from utils.plotting import (
+    calculate_vap_curve,
+    plot_vap_curve,
+    plot_vap_curve_comparative,
+    time_formatter,
+)
 
 st.set_page_config(layout="wide")
 st.title("🏃‍♂️ Profil de Performance : Courbe de Record VAP")
@@ -24,10 +28,6 @@ if 'df_raw' in st.session_state:
 
     # Préparation de la date de l'activité actuelle
     current_activity_dt = pd.to_datetime(activity_date)
-
-    st.sidebar.header("Détails")
-    st.sidebar.metric("Activité", activity_name)
-    st.sidebar.metric("Date", activity_date)
 
     init_db()
 
