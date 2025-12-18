@@ -1,12 +1,13 @@
 # plotting.py
 
-import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import seaborn as sns
 import streamlit as st
-from matplotlib.ticker import FuncFormatter, MultipleLocator
+from plotly.subplots import make_subplots
 
 
 def coefficient_variation(feature):
@@ -82,15 +83,43 @@ def plot_boxplot(df,x_var,y_var, hue_var=None):
 @st.cache_data
 def plot_montees(df, feature_distance, feature_altitude, var_montee):
     """Trace la courbe d'altitude et celles des montées pour voir si la détection est bonne"""
-    fig,ax1 = plt.subplots()
-    sns.lineplot(data=df, x=feature_distance, y=feature_altitude, ax=ax1)
-    ax2 = ax1.twinx()
-    sns.lineplot(data=df, x=feature_distance, y=var_montee, ax=ax2, color='tab:red')
+    fig = make_subplots(specs=[[{'secondary_y': True}]])
+    fig.add_trace(
+        go.Scatter(
+            x=df[feature_distance],
+            y=df[feature_altitude],
+            name='Altitude',
+            line=dict(color="#A0A0A0", width=2),
+            fill='tozeroy'
+        ),
+        secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df[feature_distance],
+            y=df[var_montee],
+            name="Détection Montée",
+            line=dict(color="#FC4C02", width=1.5), # Orange Strava
+        ),
+        secondary_y=True,
+    )
+
+    # Configuration des titres et du style
+    fig.update_layout(
+        title_text="Profil d'Altitude vs Détection des Montées",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    # Nommage des axes (Y-label)
+    fig.update_yaxes(title_text="Altitude (m)", secondary_y=False)
+    fig.update_yaxes(title_text="Indice de Montée", secondary_y=True, showgrid=False)
+    fig.update_xaxes(title_text="Distance")
+
     return fig
 
 
-import plotly.express as px
-import plotly.graph_objects as go
+
 
 
 def agg_sql_df_period(df, period, feature, sport_type_list):
