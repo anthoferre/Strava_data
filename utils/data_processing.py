@@ -460,11 +460,10 @@ def process_activity(df_raw):
     # Calcul du temps total au format hh:mm:ss
     temps_total_formatte = conversion_temps_total(df_raw['temps_h'], df_raw['temps_min'])
 
-    # surface --> 0 route et 1--> chemin
-    df_raw['surface'].replace({0: 'road', 1: 'trail'}, inplace=True)
+    df_raw['surface'] = df_raw['surface'].astype('category')
 
     # Remettre à jour l'indexation du df
-    df_raw.reset_index(drop=True,inplace=True)
+    df_raw.reset_index(drop=True, inplace=True)
 
     # Supprimer les colonnes inutiles
     df_raw.drop(columns=['vitesse_lissee','vitesse_km_h','distance_m','latlng','resting','outlier'], inplace=True)

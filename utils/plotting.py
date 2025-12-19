@@ -54,7 +54,7 @@ def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
     zmax = vmax if vmax is not None else actual_max
 
     fig = go.Figure(data=go.Heatmap(
-        z=ct.values,
+        z=ct.values.round(2),
         x=ct.columns.astype(str),
         y=ct.index.astype(str),
         colorscale='Oranges',
@@ -67,7 +67,6 @@ def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
 
     # 3. Mise en forme esthétique (Le look "Strava")
     fig.update_layout(
-        title=f"Heatmap : {feature}",
         xaxis_title="Tranches de Pente (%)",
         yaxis_title="Tranches de Distance (km)",
         height=500,
@@ -82,35 +81,79 @@ def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
 
 
 def plot_jointplot(df, x_var, y_var, hue_var=None):
-    kwargs = {
-        'data': df,
-        'x' : x_var,
-        'y': y_var,
-        'kind': 'hex'
-    }
-    if hue_var is not None:
-        kwargs['hue'] = hue_var
-        kwargs['kind'] = 'scatter'
-    joint_grid = getattr(sns, 'jointplot')(**kwargs)
-    fig = joint_grid.figure
-    fig.set_size_inches(10, 5)
-    st.pyplot(fig)
-    plt.close(fig)
 
-def plot_boxplot(df,x_var,y_var, hue_var=None):
-    kwargs = {
-            'data': df,
-            'x' : x_var,
-            'y': y_var,
-        }
-    if hue_var is not None:
-        kwargs['hue'] = hue_var
+    df_plot = df.dropna(subset=[x_var, y_var]).copy()
 
-    fig, ax = plt.subplots(figsize=(12,5))
-    getattr(sns,'boxplot')(**kwargs)
-    plt.xticks(rotation=45, ha='right')
-    st.pyplot(fig)
-    plt.close(fig)
+    if hue_var is None:
+        fig = px.density_heatmap(
+            data_frame=df_plot,
+            x=x_var,
+            y=y_var,
+            marginal_x="histogram",
+            marginal_y="histogram",
+            color_continuous_scale=px.colors.sequential.Oranges,
+            histnorm='percent'
+        )
+    else:
+        fig = px.scatter(
+            data_frame=df_plot,
+            x=x_var,
+            y=y_var,
+            color=hue_var,
+            marginal_x="box",
+            marginal_y="box",
+            color_discrete_sequence=px.colors.sequential.Oranges_r,
+            opacity=0.6
+        )
+
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02"),
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis=dict(gridcolor='rgba(252, 76, 2, 0.1)', linecolor='#FC4C02'),
+        yaxis=dict(gridcolor='rgba(252, 76, 2, 0.1)', linecolor='#FC4C02')
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def plot_boxplot(df, x_var, y_var, hue_var=None):
+
+    df_plot = df.dropna(subset=[x_var]).copy()
+
+    fig = px.box(
+        data_frame=df_plot,
+        x=x_var,
+        y=y_var,
+        color=hue_var,
+        points="outliers",
+        color_discrete_sequence=px.colors.sequential.Oranges_r,
+        category_orders={x_var: sorted(df_plot[x_var].unique().tolist())}
+    )
+    # Mise à jour du design pour correspondre à ton thème sombre/orange
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02"),
+        margin=dict(l=20, r=20, t=40, b=20),
+        xaxis=dict(
+            title=x_var,
+            showgrid=False,
+            linecolor='#FC4C02',
+            tickangle=45
+        ),
+        yaxis=dict(
+            title=y_var,
+            showgrid=True,
+            gridcolor='rgba(252, 76, 2, 0.1)', # Grille orange très subtile
+            linecolor='#FC4C02'
+        ),
+        boxmode='group' # Espace les boîtes si tu as une variable de couleur
+    )
+
+    # Affichage dans Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 @st.cache_data
 def plot_montees(df, feature_distance, feature_altitude, var_montee):
@@ -149,9 +192,6 @@ def plot_montees(df, feature_distance, feature_altitude, var_montee):
     fig.update_xaxes(title_text="Distance")
 
     return fig
-
-
-
 
 
 def agg_sql_df_period(df, period, feature, sport_type_list):
@@ -216,7 +256,7 @@ def calculate_vap_curve(df: pd.DataFrame, intervals: list):
     return vap_results
 
 
-def time_formatter(x, pos):
+def time_formatter(x):
     """Convertit la valeur décimale de l'allure (ex: 4.5) en mm:ss (ex: 04:30)."""
     minutes = int(x)
     seconds = int((x - minutes) * 60)
@@ -226,29 +266,58 @@ def time_formatter(x, pos):
 def plot_vap_curve(vap):
     vap_df = pd.DataFrame(
         list(vap.items()),
-        columns=['Durée(s)', 'Allure_Min_Moy']
+        columns=['Duree_s', 'Allure_Min_Moy']
     )
 
-    fig, ax = plt.subplots()
-    sns.lineplot(data=vap_df, x='Durée(s)', y='Allure_Min_Moy', marker='o', linewidth=3)
-    plt.xscale('log')
-    ax.invert_yaxis()
-    duration_labels = [
-        '1h30' if s == 5400
-        else f'{s//3600}h' if s >= 3600
-        else f'{s//60}m' if s >= 60
-        else f'{s}s' for s in vap_df['Durée(s)']
-    ]
-    plt.title("Profil de performance en trail - Record d'Allure ajustée moyenne (VAP)")
-    plt.ylabel("Allure Moyenne (min/km)")
-    plt.xlabel("Durée de l'effort (échelle logarithmique)")
-    plt.xticks(vap_df['Durée(s)'], duration_labels, rotation=45, fontsize=6)
-    ax.yaxis.set_major_formatter(FuncFormatter(time_formatter))
-    plt.yticks(fontsize=6)
-    plt.grid(True, which="both", linestyle='--', alpha=0.5)
-    sns.despine(left=True, bottom=True)
-    st.pyplot(fig)
-    plt.close(fig)
+    vap_df['Allure_str'] = vap_df['Allure_Min_Moy'].apply(time_formatter)
+
+    # Création des labels lisibles pour l'axe X et le survol
+    def format_duration(s):
+        if s >= 3600: return f"{s//3600}h{ (s%3600)//60 :02d}"
+        if s >= 60: return f"{s//60}m"
+        return f"{s}s"
+
+    vap_df['Label'] = vap_df['Duree_s'].apply(format_duration)
+
+    # 2. Création du graphique
+    fig = go.Figure()
+
+    # Ajout de la ligne de record
+    fig.add_trace(go.Scatter(
+        x=vap_df['Duree_s'],
+        y=vap_df['Allure_Min_Moy'],
+        mode='lines+markers',
+        line=dict(color='#FC4C02', width=4),
+        marker=dict(size=8, color='#333333', line=dict(width=1, color='#FC4C02')),
+        customdata=vap_df[['Label', 'Allure_str']],
+        hovertemplate="<b>Durée :</b> %{customdata[0]}<br><b>Allure VAP :</b> %{customdata[1]} min/km<extra></extra>"
+    ))
+
+    # 3. Configuration des axes (Log + Inversion Y)
+    fig.update_layout(
+        title="Profil de Performance - Allure Ajustée (VAP)",
+        xaxis=dict(
+            title="Durée de l'effort",
+            type='log', # Échelle logarithmique
+            tickvals=vap_df['Duree_s'],
+            ticktext=vap_df['Label'],
+            tickangle=45,
+            gridcolor='rgba(252, 76, 2, 0.1)'
+        ),
+        yaxis=dict(
+            title="Allure (min/km)",
+            autorange='reversed', # INVERSION : le plus rapide en haut
+            tickformat='%M:%S',   # Formatage automatique en mm:ss
+            gridcolor='rgba(252, 76, 2, 0.1)'
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02"),
+        height=500,
+        margin=dict(l=50, r=20, t=60, b=50)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 def plot_vap_curve_comparative(vap_curves: dict, title: str, sport_type: str):
     """

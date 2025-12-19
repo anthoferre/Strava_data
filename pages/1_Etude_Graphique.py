@@ -26,32 +26,30 @@ if 'df_raw' in st.session_state:
 
     header_container = st.container(border=True)
     with header_container:
-        st.subheader("Résumé de l'Activité")
+        st.subheader("Résumé de l'Activité", divider="rainbow")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Activité", value=activity_name)
-        m2.metric("Date", value=activity_date)
-        m3.metric("Sport", value=sport_type)
+        m1.metric("🏃 Activité", value=activity_name)
+        m2.metric("📅 Date", value=activity_date)
+        m3.metric("📍 Sport", value=sport_type)
 
     with st.expander("🔥 Etude heatmap", expanded=True):
-        st.subheader("Paramètres")
+        with st.container(border=True):
+            st.subheader("Paramètres", divider="rainbow")
 
-        aggfunc_dict = {
-            'Moyenne' : np.mean,
-            'Ecart_Type' : np.std,
-            'Somme': np.sum,
-            'Median': np.median,
-            'Minimum' : np.min,
-            'Maximum': np.max,
-            'Coefficient_de_Variation': coefficient_variation
-        }
+            aggfunc_dict = {
+                'Moyenne' : np.mean,
+                'Ecart_Type' : np.std,
+                'Somme': np.sum,
+                'Median': np.median,
+                'Minimum' : np.min,
+                'Maximum': np.max,
+                'Coefficient_de_Variation': coefficient_variation
+            }
 
-        col1, col2 = st.columns(2)
-        feature_option = col1.selectbox('Indicateur à étudier', options=[None, *list_col_num])
-        aggfunc_option = col2.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
+            col1, col2 = st.columns(2)
+            feature_option = col1.selectbox('Indicateur à étudier', options=[*list_col_num])
+            aggfunc_option = col2.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
 
-        if feature_option is None:
-            st.info("Sélectionner une variable")
-        else:
             aggfunc = aggfunc_dict[aggfunc_option]
 
             ct_temp = pd.crosstab(
@@ -66,54 +64,57 @@ if 'df_raw' in st.session_state:
             actual_max = float(valeurs_positives.max())
 
             vmin, vmax = st.slider(
-                label=f"Ajuster l'échelle de couleur {aggfunc_option}",
+                label=f"Ajuster l'échelle de couleur pour {aggfunc_option}",
                 min_value=actual_min,
                 max_value=actual_max,
                 value=(actual_min, actual_max)
             )
-
-            st.subheader(f"{aggfunc_option} de la variable '{feature_option}' en fonction de la distance et de la pente_lissee")
+        with st.container(border=True):
+            st.subheader(f"Heatmap : Etude de la fonction '{aggfunc_option}' sur la variable '{feature_option}'" , divider="rainbow")
             crosstab(df_raw, feature_option, aggfunc=aggfunc, vmin=vmin, vmax=vmax)
 
     st.divider()
     with st.expander("📊 BoxPlot"):
-        col_var_x, col_var_y = st.columns(2)
-        with col_var_x:
-            var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_cat)
-        with col_var_y:
-            var_y = st.selectbox("Variable en ordonnée", options=[None] + list_col_num)
-        var_hue = None
-        if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_boxplot_option"):
-            var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_boxplot")
-        st.subheader(f"Boxplot de la variable {var_y} en fonction de la catégorie {var_x}")
-        if var_x is None or var_y is None:
-            st.info("Sélectionne les deux variables pour le graphique")
-        elif var_hue is not None:
-            plot_boxplot(df_raw, var_x, var_y, var_hue)
-        else:
-            plot_boxplot(df_raw, var_x, var_y)
+        with st.container(border=True):
+            st.subheader("Paramètres", divider="rainbow")
+            col_var_x, col_var_y = st.columns(2)
+            var_x = col_var_x.selectbox("Variable en abscisse", options=list_col_cat)
+            var_y = col_var_y.selectbox("Variable en ordonnée", options=list_col_num)
+
+            var_hue = None
+            if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_boxplot_option"):
+                var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_boxplot")
+
+        with st.container(border=True):
+            st.subheader(f"Boxplot - Etude de la variable '{var_y}' en fonction de la catégorie '{var_x}'", divider="rainbow")
+            if var_x is None or var_y is None:
+                st.info("Sélectionne les deux variables pour le graphique")
+            else:
+                plot_boxplot(df_raw, var_x, var_y, var_hue)
 
     st.divider()
 
-    ## Joint Plot
+    # Joint Plot
 
     with st.expander("📈 Corrélation (Joint Plot)"):
-        col_var_x, col_var_y = st.columns(2)
-        with col_var_x:
-            var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_num, key='var_x_joint_plot')
-            list_col_num_var_y = [col for col in list_col_num if col != var_x]
-        with col_var_y:
-            var_y = st.selectbox("Variable en ordonnée", options=[None] + list_col_num_var_y, key='var_y_joint_plot')
-        var_hue = None
-        if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_jointplot_option"):
-            var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_jointplot")
-        st.subheader(f"Joint Plot de la variable {var_y} en fonction de la catégorie {var_x}")
-        if var_x is None or var_y is None:
-            st.info("Sélectionne les deux variables pour le graphique")
-        elif var_hue is not None:
-            plot_jointplot(df_raw, var_x, var_y, var_hue)
-        else:
-            plot_jointplot(df_raw, var_x, var_y)
+        with st.container(border=True):
+            st.subheader("Paramètres", divider="rainbow")
+            col_var_x, col_var_y = st.columns(2)
+            with col_var_x:
+                var_x = st.selectbox("Variable en abscisse", options=list_col_num, key='var_x_joint_plot')
+                list_col_num_var_y = [col for col in list_col_num if col != var_x]
+            with col_var_y:
+                var_y = st.selectbox("Variable en ordonnée", options=list_col_num_var_y, key='var_y_joint_plot')
+            var_hue = None
+            if st.checkbox("Souhaites tu une troisième variable pour différentes couleurs?", key="var_hue_jointplot_option"):
+                var_hue = st.selectbox("Variable couleur", options=[None] + list_col_cat, key="var_hue_jointplot")
+
+        with st.container(border=True):
+            st.subheader(f"Joint Plot - Etude de la variable {var_y} en fonction de la catégorie {var_x}", divider="rainbow")
+            if var_x is None or var_y is None:
+                st.info("Sélectionne les deux variables pour le graphique")
+            else:
+                plot_jointplot(df_raw, var_x, var_y, var_hue)
 
     st.divider()
 
