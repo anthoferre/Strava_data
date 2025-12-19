@@ -273,6 +273,7 @@ def plot_vap_curve(vap):
 
     # Création des labels lisibles pour l'axe X et le survol
     def format_duration(s):
+        s = int(s)
         if s >= 3600: return f"{s//3600}h{ (s%3600)//60 :02d}"
         if s >= 60: return f"{s//60}m"
         return f"{s}s"
@@ -319,88 +320,89 @@ def plot_vap_curve(vap):
 
     st.plotly_chart(fig, use_container_width=True)
 
-def plot_vap_curve_comparative(vap_curves: dict, title: str, sport_type: str):
-    """
-    Trace une ou plusieurs courbes de performance VAP pour comparaison.
 
-    Args:
-        vap_curves (dict): Dictionnaire où la clé est le nom de la courbe (ex: date, "Absolu")
-                           et la valeur est le dictionnaire {duration: record}.
-        title (str): Titre du graphique.
-        sport_type (str): Type de sport (pour le titre).
-    """
+def plot_vap_curve_comparative(vap_curves: dict, sport_type: str):
     if not vap_curves or all(not d for d in vap_curves.values()):
         st.info("Aucune donnée VAP à tracer pour la comparaison.")
         return
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig = go.Figure()
 
-    # Couleurs pour la progression, basées sur le nombre de courbes
+    # Génération d'un dégradé d'oranges/gris selon le nombre de courbes
     num_curves = len(vap_curves)
-    # Utilisation d'une palette pour la distinction
-    couleurs = plt.cm.viridis(np.linspace(0, 1, num_curves))
+    # On utilise une palette séquentielle d'oranges
+    colors = px.colors.sample_colorscale("Oranges", [i/(num_curves+1) for i in range(1, num_curves+1)])
 
-    # Inversion de l'axe Y (Allure : plus bas = plus rapide)
-    ax.invert_yaxis()
-
-    all_durations = set()
-
+    # 1. Boucle sur les courbes
     for i, (label, vap_dict) in enumerate(vap_curves.items()):
         if not vap_dict:
             continue
 
-        vap_df = pd.DataFrame(
-            list(vap_dict.items()),
-            columns=['Durée(s)', 'Allure_Min_Moy']
-        ).sort_values('Durée(s)') # Assure un tracé ordonné
+        # Préparation du DataFrame
+        df = pd.DataFrame(list(vap_dict.items()), columns=['duration', 'pace_dec']).sort_values('duration')
 
-        # Définir le style de la ligne (la ligne 'Absolu' ou la plus récente peut être plus épaisse)
-        linewidth = 2.5 if "Absolu" in label or i == num_curves - 1 else 1.5
+        # Formatage des étiquettes pour le survol
+        df['pace_str'] = df['pace_dec'].apply(time_formatter) # Utilise ta fonction existante
+        df['duration_label'] = df['duration'].apply(lambda s: f"{int(s)//3600}h{int(s%3600)//60:02d}m" if s >= 3600
+                                                    else f"{int(s)//60}m" if s >= 60
+                                                    else f"{int(s)}s")
 
-        # Tracé
-        sns.lineplot(
-            data=vap_df,
-            x='Durée(s)',
-            y='Allure_Min_Moy',
-            marker='o',
-            linewidth=linewidth,
-            ax=ax,
-            color=couleurs[i],
-            label=label
-        )
-        all_durations.update(vap_df['Durée(s)'].tolist())
+        # Style spécifique pour le "Record Absolu"
+        is_absolute = "Absolu" in label
+        line_color = "#FC4C02" if is_absolute else colors[i]
+        line_width = 5 if is_absolute else 2
 
-    # Préparation de l'axe X (avec les étiquettes de temps)
-    sorted_durations = sorted(list(all_durations))
+        # Ajout de la trace
+        fig.add_trace(go.Scatter(
+            x=df['duration'],
+            y=df['pace_dec'],
+            mode='lines+markers',
+            name=label,
+            line=dict(color=line_color, width=line_width),
+            marker=dict(size=6),
+            customdata=np.stack((df['duration_label'], df['pace_str']), axis=-1),
+            hovertemplate="<b>%{name}</b><br>Durée : %{customdata[0]}<br>Allure : %{customdata[1]} min/km<extra></extra>"
+        ))
 
-    duration_labels = [
-        '2h' if s == 7200
-        else '1h30' if s == 5400
-        else f'{s//3600}h' if s >= 3600 and s % 3600 == 0
-        else f'{s//60}m' if s >= 60 and s % 60 == 0
-        else f'{s}s' for s in sorted_durations
-    ]
+        # OPTIONNEL : Zone de tolérance de 0.3% sur le Record Absolu
+        if is_absolute:
+            # On crée une limite haute et basse à +/- 0.3%
+            fig.add_trace(go.Scatter(
+                x=df['duration'], y=df['pace_dec'] * 1.003,
+                line=dict(width=0), showlegend=False, hoverinfo='skip'
+            ))
+            fig.add_trace(go.Scatter(
+                x=df['duration'], y=df['pace_dec'] * 0.997,
+                line=dict(width=0), fill='tonexty',
+                fillcolor='rgba(252, 76, 2, 0.1)', # Orange très transparent
+                name="Zone de Performance (0.3%)", showlegend=True, hoverinfo='skip'
+            ))
 
-    # Configuration des axes
-    plt.xscale('log')
-    plt.title(title, fontsize=14)
-    plt.ylabel(f"Allure Moyenne {sport_type} (min/km)", fontsize=12)
-    plt.xlabel("Durée de l'effort (échelle logarithmique)", fontsize=12)
+    # 2. Configuration des Axes et Layout
+    fig.update_layout(
+        xaxis=dict(
+            title="Durée de l'effort (log)",
+            type='log',
+            gridcolor='rgba(252, 76, 2, 0.1)',
+            tickvals=[1, 5, 10, 30, 60, 300, 600, 1800, 3600, 7200, 18000],
+            ticktext=['1s', '5s', '10s', '30s', '1m', '5m', '10m', '30m', '1h', '2h', '5h'],
+            tickangle=45
+        ),
+        yaxis=dict(
+            title=f"Allure ({sport_type})",
+            autorange='reversed', # Important : Allure rapide en haut
+            tickformat='%M:%S',
+            gridcolor='rgba(252, 76, 2, 0.1)'
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02"),
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99, bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=20, r=20, t=60, b=40),
+        height=600
+    )
 
-    # Configuration des ticks de l'axe X (on n'affiche que les intervalles qui existent)
-    ax.set_xticks(sorted_durations)
-    ax.set_xticklabels(duration_labels, rotation=45, fontsize=10)
-
-    # Configuration du formatteur de l'axe Y (mm:ss)
-    ax.yaxis.set_major_formatter(FuncFormatter(time_formatter))
-
-    # Légende et Grille
-    plt.grid(True, which="both", linestyle='--', alpha=0.6)
-    plt.legend(title="Courbes Comparées", loc='upper right', fontsize=9)
-    sns.despine(left=False, bottom=False)
-
-    st.pyplot(fig)
-    plt.close(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def plot_record_regression(df_record):
