@@ -1,6 +1,7 @@
 # Etude_Graphique.py
 
 import numpy as np
+import pandas as pd
 import streamlit as st
 
 from utils.plotting import (calculate_vap_curve, coefficient_variation,
@@ -23,15 +24,17 @@ if 'df_raw' in st.session_state:
     list_col_num = df_raw.select_dtypes([int, float]).columns.tolist()
     list_col_cat = df_raw.select_dtypes([object, 'category']).columns.tolist()
 
-    with st.expander("Etude heatmap", expanded=True):
+    header_container = st.container(border=True)
+    with header_container:
+        st.subheader("Résumé de l'Activité")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Activité", value=activity_name)
+        m2.metric("Date", value=activity_date)
+        m3.metric("Sport", value=sport_type)
+
+    with st.expander("🔥 Etude heatmap", expanded=True):
         st.subheader("Paramètres")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            feature_option = st.selectbox('Indicateur à étudier',options=[None, *list_col_num])
-        with col2:
-            vmin_option = st.number_input("Quelle valeur min souhaites tu mettre?", step=1)
-        with col3:
-            vmax_option = st.number_input("Quelle valeur max souhaites tu mettre?", value=None, step=1)
+
         aggfunc_dict = {
             'Moyenne' : np.mean,
             'Ecart_Type' : np.std,
@@ -42,16 +45,38 @@ if 'df_raw' in st.session_state:
             'Coefficient_de_Variation': coefficient_variation
         }
 
+        col1, col2 = st.columns(2)
+        feature_option = col1.selectbox('Indicateur à étudier', options=[None, *list_col_num])
+        aggfunc_option = col2.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
+
         if feature_option is None:
             st.info("Sélectionner une variable")
         else:
-            aggfunc_option = st.radio("Quelle fonction veux tu exécuter", options=list(aggfunc_dict.keys()))
             aggfunc = aggfunc_dict[aggfunc_option]
+
+            ct_temp = pd.crosstab(
+                index=df_raw['tranche_distance'],
+                columns=df_raw['tranche_pente'],
+                values=df_raw[feature_option],
+                aggfunc=aggfunc
+            ).fillna(0)
+
+            valeurs_positives = ct_temp.values[ct_temp.values > 0]
+            actual_min = float(valeurs_positives.min())
+            actual_max = float(valeurs_positives.max())
+
+            vmin, vmax = st.slider(
+                label=f"Ajuster l'échelle de couleur {aggfunc_option}",
+                min_value=actual_min,
+                max_value=actual_max,
+                value=(actual_min, actual_max)
+            )
+
             st.subheader(f"{aggfunc_option} de la variable '{feature_option}' en fonction de la distance et de la pente_lissee")
-            crosstab(df_raw, feature_option, aggfunc=aggfunc, vmax=vmax_option)
+            crosstab(df_raw, feature_option, aggfunc=aggfunc, vmin=vmin, vmax=vmax)
 
     st.divider()
-    with st.expander("BoxPlot"):
+    with st.expander("📊 BoxPlot"):
         col_var_x, col_var_y = st.columns(2)
         with col_var_x:
             var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_cat)
@@ -72,7 +97,7 @@ if 'df_raw' in st.session_state:
 
     ## Joint Plot
 
-    with st.expander("Joint Plot"):
+    with st.expander("📈 Corrélation (Joint Plot)"):
         col_var_x, col_var_y = st.columns(2)
         with col_var_x:
             var_x = st.selectbox("Variable en abscisse", options=[None] + list_col_num, key='var_x_joint_plot')
@@ -92,7 +117,7 @@ if 'df_raw' in st.session_state:
 
     st.divider()
 
-    with st.expander("Record d'Allure Moyenne Ajustée"):
+    with st.expander("🏆 Record d'Allure Moyenne Ajustée (VAP)"):
         interval_sec = [
             1, 5, 10, 30, 60,
             120, 300, 600, 1200, 1800,

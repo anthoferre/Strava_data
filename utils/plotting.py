@@ -35,19 +35,50 @@ def get_format(feature, aggfunc):
     return 'd'
 
 
-def crosstab(df, feature, aggfunc, vmax=None,):
+def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
+
     fmt_heatmap = get_format(feature, aggfunc)
     dtype_final = float if 'f' in fmt_heatmap else int
-    fig, ax = plt.subplots(figsize=(15, 5))
-    crosstab = pd.crosstab(df['tranche_distance'], df['tranche_pente'], df[feature], aggfunc=aggfunc).fillna(0).astype(dtype_final)
-    min = crosstab.values.flatten()
-    min = min[min > 0].min()
-    if not pd.isna(min):
-        vmin = min
-    sns.heatmap(crosstab, annot=True, cmap='viridis', linewidths=0.5, fmt=fmt_heatmap, cbar=True, ax=ax, vmin=vmin, vmax=vmax,
-                annot_kws={'fontsize': 12})
-    st.pyplot(fig)
-    plt.close(fig)
+
+    ct = pd.crosstab(
+        index=df['tranche_distance'],
+        columns=df['tranche_pente'],
+        values=df[feature],
+        aggfunc=aggfunc
+    ).fillna(0).astype(dtype_final)
+
+    actual_min = float(ct.values.min())
+    actual_max = float(ct.values.max())
+
+    zmin = vmin if vmin is not None else actual_min
+    zmax = vmax if vmax is not None else actual_max
+
+    fig = go.Figure(data=go.Heatmap(
+        z=ct.values,
+        x=ct.columns.astype(str),
+        y=ct.index.astype(str),
+        colorscale='Oranges',
+        zmin=zmin,
+        zmax=zmax,
+        text=ct.values.round(2),
+        texttemplate="%{text}",
+        hovertemplate="<b>Distance:</b> %{y}<br><b>Pente:</b> %{x}<br><b>Valeur:</b> %{z}<extra></extra>"
+    ))
+
+    # 3. Mise en forme esthétique (Le look "Strava")
+    fig.update_layout(
+        title=f"Heatmap : {feature}",
+        xaxis_title="Tranches de Pente (%)",
+        yaxis_title="Tranches de Distance (km)",
+        height=500,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',  # Fond transparent
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02")    # On applique votre orange !
+    )
+
+    # 4. Affichage dans Streamlit
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def plot_jointplot(df, x_var, y_var, hue_var=None):
