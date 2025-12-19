@@ -2,10 +2,8 @@
 
 from datetime import datetime, timezone
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import streamlit as st
 
 from strava_api import get_activity_data_from_api, get_last_activity_ids

@@ -3,6 +3,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import streamlit as st
 
@@ -11,6 +12,7 @@ from utils.data_processing import (calculate_all_records, fit_and_predict_time,
 from utils.db_manager import (init_db, load_activity_records_by_key,
                               load_performance_records,
                               save_performance_records)
+from utils.plotting import plot_record_regression
 from utils.style_css import inject_custom_css
 
 st.set_page_config(layout="wide")
@@ -24,6 +26,17 @@ if 'df_raw' in st.session_state:
     activity_name = st.session_state['activity_name']
     sport_type = st.session_state['sport_type']
     activity_date = st.session_state['activity_date']
+
+    date_activity = pd.to_datetime(activity_date)
+    date_fr = date_activity.strftime("%d/%m/%Y - %Hh%M")
+
+    header_container = st.container(border=True)
+    with header_container:
+        st.subheader("Résumé de l'Activité", divider="rainbow")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🏃 Activité", value=activity_name)
+        m2.metric("📅 Date", value=date_fr)
+        m3.metric("📍 Sport", value=sport_type)
 
     # Enregistrement des performances tous les km dans la database
     init_db()
@@ -41,47 +54,25 @@ if 'df_raw' in st.session_state:
         df_records = load_performance_records()
 
     df_record_per_distance = df_records.groupby(by='distance_km')['best_time_min'].min().reset_index()
+    with st.container(border=True):
+        with st.container(border=True):
+            st.subheader("Paramètres de la prochaine course", divider="rainbow")
+            col_distance, col_denivele = st.columns(2)
+            with col_distance:
+                new_distance = st.number_input("Nouvelle distance à prédire", key="New_distance", value=None)
+            with col_denivele:
+                new_denivele = st.number_input("Quel dénivelé positif sur la course à prédire", key="New_dénivelé_pos", value=None)
+        with st.container(border=True):
+            st.subheader("Estimation", divider="rainbow")
+            if new_distance is None:
+                st.info("Rentre la nouvelle distance à prédire")
+            else:
+                new_time, fig_reg = fit_and_predict_time(df_record_per_distance, new_distance, new_denivele)
+                st.metric(label="Temps prédit", value=time_formatter(new_time * 60))
+                with st.expander("Veux tu regarder la courbe de Puissance?"):
+                    st.pyplot(fig_reg)
+                    plt.close(fig_reg)
 
-
-    st.subheader("Prédicteur de temps de course")
-    col_distance, col_denivele = st.columns(2)
-    with col_distance:
-        new_distance = st.number_input("Nouvelle distance à prédire", key="New_distance", value=None)
-    with col_denivele:
-        new_denivele = st.number_input("Quel dénivelé positif sur la course à prédire", key="New_dénivelé_pos", value=None)
-    if new_distance is None:
-        st.info("Rentre la nouvelle distance à prédire")
-    else:
-        new_time, fig_reg = fit_and_predict_time(df_record_per_distance, new_distance, new_denivele)
-        st.metric(label="Temps prédit",value=time_formatter(new_time * 60))
-        with st.expander("Veux tu regarder la courbe de Puissance?"):
-            st.pyplot(fig_reg)
-            plt.close(fig_reg)
-
-    # Prendre la valeur la plus basse pour une meme distance
-
-
-    st.subheader('Meilleure performance historique par distance')
-    fig,ax = plt.subplots()
-    sns.regplot(data=df_record_per_distance, x='distance_km', y='best_time_min', ci=95, ax=ax, order=2)
-    formatter = ticker.FuncFormatter(time_formatter)
-    # Applique le formateur à l'axe Y
-    ax.yaxis.set_major_formatter(formatter)
-    plt.ylabel('Temps_min')
-    st.pyplot(fig)
-    plt.close(fig)
-
-    plt.ylabel('Temps_min')
-    st.pyplot(fig)
-    plt.close(fig)
-
-    st.subheader('Meilleure performance historique par distance')
-    fig,ax = plt.subplots()
-    sns.regplot(data=df_record_per_distance, x='distance_km', y='best_time_min', ci=95, ax=ax, order=2)
-    formatter = ticker.FuncFormatter(time_formatter)
-    # Applique le formateur à l'axe Y
-    ax.yaxis.set_major_formatter(formatter)
-    plt.ylabel('Temps_min')
-    st.pyplot(fig)
-    plt.close(fig)
-
+    with st.container(border=True):
+        st.subheader('Meilleure performance historique par distance', divider="rainbow")
+        plot_record_regression(df_record=df_record_per_distance)

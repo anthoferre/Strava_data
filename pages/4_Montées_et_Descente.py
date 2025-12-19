@@ -1,6 +1,6 @@
 # Montées_et_Descente.py
 
-import matplotlib.pyplot as plt
+import pandas as pd
 import streamlit as st
 
 from utils.data_processing import detection_montees
@@ -16,6 +16,17 @@ if 'df_raw' in st.session_state:
     activity_name = st.session_state['activity_name']
     sport_type = st.session_state['sport_type']
     activity_date = st.session_state['activity_date']
+
+    date_activity = pd.to_datetime(activity_date)
+    date_fr = date_activity.strftime("%d/%m/%Y - %Hh%M")
+
+    header_container = st.container(border=True)
+    with header_container:
+        st.subheader("Résumé de l'Activité", divider="rainbow")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🏃 Activité", value=activity_name)
+        m2.metric("📅 Date", value=date_fr)
+        m3.metric("📍 Sport", value=sport_type)
 
     window_rolling = st.slider("Fenêtre pour le lissage des données d'altitude", value=90, min_value=5, max_value=200)
     with st.container(border=True):

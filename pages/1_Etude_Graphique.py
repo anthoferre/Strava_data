@@ -24,12 +24,15 @@ if 'df_raw' in st.session_state:
     list_col_num = df_raw.select_dtypes([int, float]).columns.tolist()
     list_col_cat = df_raw.select_dtypes([object, 'category']).columns.tolist()
 
+    date_activity = pd.to_datetime(activity_date)
+    date_fr = date_activity.strftime("%d/%m/%Y - %Hh%M")
+
     header_container = st.container(border=True)
     with header_container:
         st.subheader("Résumé de l'Activité", divider="rainbow")
         m1, m2, m3 = st.columns(3)
         m1.metric("🏃 Activité", value=activity_name)
-        m2.metric("📅 Date", value=activity_date)
+        m2.metric("📅 Date", value=date_fr)
         m3.metric("📍 Sport", value=sport_type)
 
     with st.expander("🔥 Etude heatmap", expanded=True):

@@ -24,8 +24,16 @@ if 'df_raw' in st.session_state:
     sport_type = st.session_state['sport_type']
     activity_date = st.session_state['activity_date']
 
-    # Préparation de la date de l'activité actuelle
-    current_activity_dt = pd.to_datetime(activity_date)
+    date_activity = pd.to_datetime(activity_date)
+    date_fr = date_activity.strftime("%d/%m/%Y - %Hh%M")
+
+    header_container = st.container(border=True)
+    with header_container:
+        st.subheader("Résumé de l'Activité", divider="rainbow")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🏃 Activité", value=activity_name)
+        m2.metric("📅 Date", value=date_fr)
+        m3.metric("📍 Sport", value=sport_type)
 
     init_db()
 

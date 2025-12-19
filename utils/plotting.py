@@ -401,3 +401,65 @@ def plot_vap_curve_comparative(vap_curves: dict, title: str, sport_type: str):
 
     st.pyplot(fig)
     plt.close(fig)
+
+
+def plot_record_regression(df_record):
+    # 1. Nettoyage et tri pour le calcul
+    df_plot = df_record.sort_values('distance_km').dropna(subset=['distance_km', 'best_time_min'])
+
+    # 2. Calcul de la régression polynomiale (Ordre 2) avec NumPy
+    # On évite ainsi d'utiliser statsmodels qui cause l'ImportError
+    z = np.polyfit(df_plot['distance_km'], df_plot['best_time_min'], 2)
+    p = np.poly1d(z)
+
+    # Génération des points de la courbe de tendance
+    x_range = np.linspace(df_plot['distance_km'].min(), df_plot['distance_km'].max(), 100)
+    y_range = p(x_range)
+
+    # 3. Création du graphique de base (Points)
+    fig = px.scatter(
+        df_plot,
+        x='distance_km',
+        y='best_time_min',
+        labels={'distance_km': 'Distance (km)', 'best_time_min': 'Temps (min)'},
+    )
+
+    # 4. Ajout manuel de la ligne de tendance
+    fig.add_trace(go.Scatter(
+        x=x_range,
+        y=y_range,
+        mode='lines',
+        name='Tendance (Ordre 2)',
+        line=dict(color='#FC4C02', width=3, dash='dash'),
+        hoverinfo='skip'
+    ))
+
+    def format_to_hms(minutes_dec):
+        total_seconds = int(minutes_dec * 60)
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+
+        if hours > 0:
+            return f"{hours}h {minutes:02d}m {seconds:02d}s"
+        return f"{minutes:02d}m {seconds:02d}s"
+
+    df_plot['time_str'] = df_plot['best_time_min'].apply(format_to_hms)
+
+    fig.update_traces(
+        marker=dict(size=10, color='#333333', line=dict(width=1, color='#FC4C02')),
+        customdata=df_plot['time_str'],
+        hovertemplate="<b>Distance:</b> %{x:.2f} km<br><b>Temps:</b> %{customdata}<extra></extra>",
+        selector=dict(mode='markers')
+    )
+
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#FC4C02"),
+        xaxis=dict(gridcolor='rgba(252, 76, 2, 0.1)', showgrid=True),
+        yaxis=dict(gridcolor='rgba(252, 76, 2, 0.1)', showgrid=True, title="Temps (min)"),
+        showlegend=False
+    )
+
+    st.plotly_chart(fig, use_container_width=True)

@@ -14,24 +14,25 @@ inject_custom_css()
 
 st.title("💓 Etude de la Fréquence Cardiaque")
 
-# Mapping fixe : Zone -> Couleur
-fc_color_map = {
-    '(0 - 60% FC Max) Récup': '#3498db',         # Bleu
-    '(60 - 68% FC Max) End. Base': '#2ecc71',    # Vert
-    '(68 - 75% FC Max) End. Fond.': '#f1c40f',   # Jaune
-    '(75 - 82% FC Max) Tempo': '#e67e22',        # Orange
-    '(82 - 89% FC Max) Seuil': '#e74c3c',        # Rouge clair
-    '(89 - 94% FC Max) VO2 Max': '#c0392b',      # Rouge foncé
-    '(94 - 100% FC Max) Effort Max': '#8e44ad'   # Violet
-}
-
 if 'df_raw' in st.session_state:
     df_raw = st.session_state['df_raw']
     activity_name = st.session_state['activity_name']
     sport_type = st.session_state['sport_type']
     activity_date = st.session_state['activity_date']
 
+    date_activity = pd.to_datetime(activity_date)
+    date_fr = date_activity.strftime("%d/%m/%Y - %Hh%M")
+
+    header_container = st.container(border=True)
+    with header_container:
+        st.subheader("Résumé de l'Activité", divider="rainbow")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("🏃 Activité", value=activity_name)
+        m2.metric("📅 Date", value=date_fr)
+        m3.metric("📍 Sport", value=sport_type)
+
     with st.container(border=True):
+        st.subheader("Etude de la Distribution de la Fréquence Cardiaque", divider="rainbow")
         col1, col2 = st.columns([1, 2])
         with col1:
             # Barplot de répartition
@@ -40,7 +41,7 @@ if 'df_raw' in st.session_state:
             fig_pie = px.pie(compte_par_zone_filtre, values='count', names='zone_fc',
                              title="Répartition par zone de FC",
                              color='zone_fc',
-                             color_discrete_map=fc_color_map,
+                             color_discrete_sequence=px.colors.sequential.Oranges,
                              hole=0.2)
             fig_pie.update_layout(showlegend=False, height=350)
             st.plotly_chart(fig_pie, use_container_width=True)
@@ -48,7 +49,7 @@ if 'df_raw' in st.session_state:
         with col2:
             fig_hist = px.histogram(df_raw, x='frequence_cardiaque', color='zone_fc',
                                     title="Distribution de la Fréquence Cardiaque",
-                                    color_discrete_map=fc_color_map,
+                                    color_discrete_sequence=px.colors.sequential.Oranges,
                                     barmode='overlay',
                                     histnorm='percent',
                                     )
@@ -82,15 +83,14 @@ if 'df_raw' in st.session_state:
         df_agg_zones_fc[zone] = (df_agg_zones_fc[zone] / df_agg_zones_fc['total_bin']) * 100
 
     with st.container(border=True):
-        st.subheader("📈 Évolution des zones au fil de l'effort")
+        st.subheader("📈 Évolution des zones de Fréquence Cardique au fil de l'effort", divider="rainbow")
 
         fig_area = px.area(
             df_agg_zones_fc,
             x='temps_normalisee',
             y=zones_actives,
-            color_discrete_map=fc_color_map,
-            line_shape='spline', # Pour des courbes douces
-            title="Répartition dynamique des zones de FC",
+            color_discrete_sequence=px.colors.sequential.Oranges,
+            line_shape='spline',
             labels={
                 "value": "Proportion dans les zones de FC (%)",
                 "temps_normalisee": "Progression de l'activité (%)"
@@ -104,7 +104,7 @@ if 'df_raw' in st.session_state:
         st.plotly_chart(fig_area, use_container_width=True)
 
     with st.container(border=True):
-        st.subheader("⛰️ Impact du profil sur la Fréquence Cardiaque")
+        st.subheader("⛰️ Impact du profil sur la Fréquence Cardiaque", divider="rainbow")
         # Création d'un graphique à deux axes (Altitude et FC)
         fig_dual = go.Figure()
 
