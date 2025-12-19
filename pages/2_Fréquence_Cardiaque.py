@@ -6,41 +6,11 @@ import plotly_express as px
 import seaborn as sns
 import streamlit as st
 
-st.markdown("""
-    <style>
-    /* Titre principal en Orange Strava */
-    h1 {{
-        color: #FC4C02;
-    }}
+from utils.style_css import inject_custom_css
 
-    [data-testid="stSubheader"] {{
-    color: #FC4C02 !important;
-    }}
+st.set_page_config(layout="wide")
+inject_custom_css()
 
-    /* Bouton 'Charger l'activité' personnalisé */
-    div.stButton > button:first-child {{
-        background-color: #FC4C02;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: bold;
-    }}
-
-    /* Fond légèrement grisé pour les containers */
-    [data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: #fcfcfc;
-    }}
-
-    /* Style pour les métriques */
-    [data-testid="stMetricValue"] {{
-        color: #FC4C02;
-    }}
-
-    .stProgress > div > div > div > div {{
-        background-color: #FC4C02;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
 
 st.title("💓 Etude de la Fréquence Cardiaque")
 
@@ -158,5 +128,7 @@ if 'df_raw' in st.session_state:
 else:
     st.info("Veuillez sélectionner ou entrer un ID d'activité et cliquer sur **'🚀 "
             "Charger l'activité'** pour commencer l'analyse.")
+
+
 
 

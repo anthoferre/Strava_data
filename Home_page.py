@@ -9,48 +9,16 @@ import seaborn as sns
 import streamlit as st
 
 from strava_api import get_activity_data_from_api, get_last_activity_ids
-from utils.data_processing import (
-    allure_format,
-    calculate_tss,
-    process_activity,
-    time_formatter,
-)
+from utils.data_processing import (allure_format, calculate_tss,
+                                   process_activity, time_formatter)
 from utils.db_manager import get_db_connection, init_db, sql_df
 from utils.plotting import agg_sql_df_period
+from utils.style_css import inject_custom_css
 
 st.set_page_config(layout='wide')
 
-st.markdown(f"""
-    <style>
-    /* Titre principal en Orange Strava */
-    h1 {{
-        color: #FC4C02;
-    }}
+inject_custom_css()
 
-    /* Bouton 'Charger l'activité' personnalisé */
-    div.stButton > button:first-child {{
-        background-color: #FC4C02;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: bold;
-    }}
-
-    /* Fond légèrement grisé pour les containers */
-    [data-testid="stVerticalBlockBorderWrapper"] {{
-        background-color: #fcfcfc;
-    }}
-
-    /* Style pour les métriques */
-    [data-testid="stMetricValue"] {{
-        color: #FC4C02;
-    }}
-
-    .stProgress > div > div > div > div {{
-        background-color: #FC4C02;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
 
 # --- Configuration et Initialisation des Secrets ---
 # Stocker les secrets en session state pour une vérification rapide

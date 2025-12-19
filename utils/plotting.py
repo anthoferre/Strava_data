@@ -7,6 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import seaborn as sns
 import streamlit as st
+from matplotlib.ticker import FuncFormatter
 from plotly.subplots import make_subplots
 
 

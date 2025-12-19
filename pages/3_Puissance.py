@@ -1,10 +1,16 @@
 # Puissance.py
 
-import streamlit as st
 import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
 import numpy as np
+import pandas as pd
+import seaborn as sns
+import streamlit as st
+
+from utils.style_css import inject_custom_css
+
+st.set_page_config(layout="wide")
+inject_custom_css()
+
 
 st.title("Etude de la Puissance")
 
@@ -27,13 +33,13 @@ if 'df_raw' in st.session_state:
         st.pyplot(fig_p_col1)
         plt.close(fig_p_col1)
 
-    
+
     with col2:
         fig, ax = plt.subplots()
         sns.histplot(data=df_raw, x='puissance_watts', hue = 'zone_puissance', multiple='stack', palette='viridis', ax=ax, stat='percent', legend=False)
         st.pyplot(fig)
         plt.close(fig)
-    
+
     ordres_zones_p = [
         '(0 to 55% FTP) Récup',
         '(55 to 75% FTP) Endurance',
@@ -49,7 +55,7 @@ if 'df_raw' in st.session_state:
     df_agg_zones_p['total_echantillons_bin'] = df_agg_zones_p[ordres_zones_p].sum(axis=1)
     df_agg_zones_p['total_echantillons_bin'] = df_agg_zones_p['total_echantillons_bin'].replace(0, 1)
 
-   
+
     fig_p_col2,ax = plt.subplots()
     x_data = df_agg_zones_p['temps_bin'] * 100
     y_data = [(df_agg_zones_p[zone] / df_agg_zones_p['total_echantillons_bin']) *100 for zone in ordres_zones_p]

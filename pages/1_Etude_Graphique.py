@@ -6,6 +6,10 @@ import streamlit as st
 from utils.plotting import (calculate_vap_curve, coefficient_variation,
                             crosstab, plot_boxplot, plot_jointplot,
                             plot_vap_curve)
+from utils.style_css import inject_custom_css
+
+st.set_page_config(layout="wide")
+inject_custom_css()
 
 st.title("Visualisation des indicateurs de la performance")
 

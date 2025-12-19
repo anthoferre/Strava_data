@@ -1,12 +1,21 @@
 #Prédiction.py
 
-import streamlit as st
-import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import matplotlib.ticker as ticker
-from utils.data_processing import fit_and_predict_time, time_formatter, calculate_all_records
-from utils.db_manager import init_db, load_activity_records_by_key, load_performance_records, save_performance_records
+import numpy as np
+import seaborn as sns
+import streamlit as st
+
+from utils.data_processing import (calculate_all_records, fit_and_predict_time,
+                                   time_formatter)
+from utils.db_manager import (init_db, load_activity_records_by_key,
+                              load_performance_records,
+                              save_performance_records)
+from utils.style_css import inject_custom_css
+
+st.set_page_config(layout="wide")
+inject_custom_css()
+
 
 st.title("Prédiction des prochains temps de course")
 
@@ -27,13 +36,13 @@ if 'df_raw' in st.session_state:
         max_distance_floor = int(np.floor(df_raw['distance_effort_itra'].max()))
         distances_list = [i for i in range(1, max_distance_floor + 1)]
         df_results = calculate_all_records(df_raw, 'distance_effort_itra', 'temps_min', distances_a_calculer = distances_list)
-    
+
         save_performance_records(df_results, sport_type, activity_date)
         df_records = load_performance_records()
-    
+
     df_record_per_distance = df_records.groupby(by='distance_km')['best_time_min'].min().reset_index()
-    
-    
+
+
     st.subheader("Prédicteur de temps de course")
     col_distance, col_denivele = st.columns(2)
     with col_distance:
@@ -50,8 +59,8 @@ if 'df_raw' in st.session_state:
             plt.close(fig_reg)
 
     # Prendre la valeur la plus basse pour une meme distance
-    
-    
+
+
     st.subheader('Meilleure performance historique par distance')
     fig,ax = plt.subplots()
     sns.regplot(data=df_record_per_distance, x='distance_km', y='best_time_min', ci=95, ax=ax, order=2)
@@ -62,4 +71,17 @@ if 'df_raw' in st.session_state:
     st.pyplot(fig)
     plt.close(fig)
 
-    
+    plt.ylabel('Temps_min')
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.subheader('Meilleure performance historique par distance')
+    fig,ax = plt.subplots()
+    sns.regplot(data=df_record_per_distance, x='distance_km', y='best_time_min', ci=95, ax=ax, order=2)
+    formatter = ticker.FuncFormatter(time_formatter)
+    # Applique le formateur à l'axe Y
+    ax.yaxis.set_major_formatter(formatter)
+    plt.ylabel('Temps_min')
+    st.pyplot(fig)
+    plt.close(fig)
+

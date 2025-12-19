@@ -3,14 +3,12 @@ import streamlit as st
 
 # Assurez-vous d'avoir plot_vap_curve_comparative et plot_vap_curve (ou la renommer)
 from utils.db_manager import init_db, load_curve_records, save_curve_record
-from utils.plotting import (
-    calculate_vap_curve,
-    plot_vap_curve,
-    plot_vap_curve_comparative,
-    time_formatter,
-)
+from utils.plotting import (calculate_vap_curve, plot_vap_curve,
+                            plot_vap_curve_comparative)
+from utils.style_css import inject_custom_css
 
 st.set_page_config(layout="wide")
+inject_custom_css()
 st.title("🏃‍♂️ Profil de Performance : Courbe de Record VAP")
 
 # Intervalles standards pour la courbe VAP (en secondes)
@@ -59,7 +57,6 @@ if 'df_raw' in st.session_state:
     else:
         st.warning(f"L'étude de la courbe VAP est limitée aux activités de course/trail. Sport actuel : {sport_type}")
 
-
     # --- 2. ANALYSE HISTORIQUE et GRAPHIQUES ---
 
     st.markdown("## 📊 Analyse du Profil de Performance Historique")
@@ -95,12 +92,11 @@ if 'df_raw' in st.session_state:
             # Tracé du Record Absolu (Utilisation de la fonction plot_vap_curve simple, ou la comparative avec une seule entrée)
             # J'utilise la version simple si elle existe encore, sinon la comparative
             try:
-                plot_vap_curve(absolute_best_dict) # Si cette fonction trace une courbe simple
+                plot_vap_curve(absolute_best_dict)  # Si cette fonction trace une courbe simple
             except NameError:
-                 plot_vap_curve_comparative({
-                    f"Record Absolu ({sport_type})": absolute_best_dict
+                plot_vap_curve_comparative({
+                   f"Record Absolu ({sport_type})": absolute_best_dict
                 }, title="Profil de Performance Absolu", sport_type=sport_type)
-
 
             # --- B. GRAPHIQUE 2 : Évolution Mensuelle (Toutes les courbes mensuelles) ---
             st.markdown("### 📈 Évolution des Records : Comparaison Mensuelle")
@@ -118,7 +114,7 @@ if 'df_raw' in st.session_state:
             selected_months = st.multiselect(
                 "Mois à afficher :",
                 options=monthly_options,
-                default=monthly_options[:min(3, len(monthly_options))] # Sélectionne les 3 derniers mois par défaut
+                default=monthly_options[:min(3, len(monthly_options))]  # Sélectionne les 3 derniers mois par défaut
             )
 
             if selected_months:

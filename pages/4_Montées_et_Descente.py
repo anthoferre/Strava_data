@@ -5,7 +5,10 @@ import streamlit as st
 
 from utils.data_processing import detection_montees
 from utils.plotting import plot_montees
+from utils.style_css import inject_custom_css
 
+st.set_page_config(layout="wide")
+inject_custom_css()
 st.title("Etude des phases de montées et de descentes")
 
 if 'df_raw' in st.session_state:
