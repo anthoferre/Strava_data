@@ -1,13 +1,10 @@
 # plotting.py
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import seaborn as sns
 import streamlit as st
-from matplotlib.ticker import FuncFormatter
 from plotly.subplots import make_subplots
 
 
@@ -35,6 +32,7 @@ def get_format(feature, aggfunc):
     return 'd'
 
 
+@st.cache_data
 def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
 
     fmt_heatmap = get_format(feature, aggfunc)
@@ -80,6 +78,7 @@ def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_data
 def plot_jointplot(df, x_var, y_var, hue_var=None):
 
     df_plot = df.dropna(subset=[x_var, y_var]).copy()
@@ -118,6 +117,7 @@ def plot_jointplot(df, x_var, y_var, hue_var=None):
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_data
 def plot_boxplot(df, x_var, y_var, hue_var=None):
 
     df_plot = df.dropna(subset=[x_var]).copy()
@@ -154,6 +154,7 @@ def plot_boxplot(df, x_var, y_var, hue_var=None):
 
     # Affichage dans Streamlit
     st.plotly_chart(fig, use_container_width=True)
+
 
 @st.cache_data
 def plot_montees(df, feature_distance, feature_altitude, var_montee):
@@ -194,6 +195,7 @@ def plot_montees(df, feature_distance, feature_altitude, var_montee):
     return fig
 
 
+@st.cache_data
 def agg_sql_df_period(df, period, feature, sport_type_list):
     # 1. Filtrage
     df_sport_type = df[df['sport_type'].isin(sport_type_list)]
@@ -263,6 +265,7 @@ def time_formatter(x):
     return f'{minutes:02d}:{seconds:02d}'
 
 
+@st.cache_data
 def plot_vap_curve(vap):
     vap_df = pd.DataFrame(
         list(vap.items()),
@@ -321,6 +324,7 @@ def plot_vap_curve(vap):
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_data
 def plot_vap_curve_comparative(vap_curves: dict, sport_type: str):
     if not vap_curves or all(not d for d in vap_curves.values()):
         st.info("Aucune donnée VAP à tracer pour la comparaison.")
@@ -405,6 +409,7 @@ def plot_vap_curve_comparative(vap_curves: dict, sport_type: str):
     st.plotly_chart(fig, use_container_width=True)
 
 
+@st.cache_data
 def plot_record_regression(df_record):
     # 1. Nettoyage et tri pour le calcul
     df_plot = df_record.sort_values('distance_km').dropna(subset=['distance_km', 'best_time_min'])
