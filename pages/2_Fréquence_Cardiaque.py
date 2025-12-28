@@ -1,9 +1,7 @@
-import matplotlib.pyplot as plt
-import numpy as np
+
 import pandas as pd
 import plotly.graph_objects as go
 import plotly_express as px
-import seaborn as sns
 import streamlit as st
 
 from utils.style_css import inject_custom_css
