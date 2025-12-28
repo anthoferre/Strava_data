@@ -163,9 +163,7 @@ if 'df_raw' in st.session_state:
 
     list_of_sport_type = df_sql['sport_type'].unique().tolist()
     sport_type_options = st.multiselect("Sélectionne le ou les sports que tu souhaites voir l'évolution?",
-                                        options=list_of_sport_type, default=['Hike','Run','TrailRun'])
-
-
+                                        options=list_of_sport_type, default=['Hike', 'Run', 'TrailRun'])
 
     with st.container(border=True):
         st.subheader("📊 Statistiques hebdomadaires")

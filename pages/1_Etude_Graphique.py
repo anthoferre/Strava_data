@@ -4,9 +4,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from utils.plotting import (calculate_vap_curve, coefficient_variation,
-                            crosstab, plot_boxplot, plot_jointplot,
-                            plot_vap_curve)
+from utils.plotting import (
+    calculate_vap_curve,
+    coefficient_variation,
+    crosstab,
+    plot_boxplot,
+    plot_jointplot,
+    plot_vap_curve,
+)
 from utils.style_css import inject_custom_css
 
 st.set_page_config(layout="wide")
@@ -20,8 +25,10 @@ if 'df_raw' in st.session_state:
     sport_type = st.session_state['sport_type']
     activity_date = st.session_state['activity_date']
 
-    list_col_all = df_raw.columns.tolist()
-    list_col_num = df_raw.select_dtypes([int, float]).columns.tolist()
+    list_col_all = ['frequence_cardiaque', 'pente_lissee', 'allure_min_km', 'fc_normalisee', 'efficacite_course',
+                    'efficacite_course_normalisee', 'vam', 'vap_allure', 'efficacite_course_vap', 'score_strava',
+                    'vap_allure_cv']
+    list_col_num = df_raw[list_col_all].select_dtypes([int, float]).columns.tolist()
     list_col_cat = df_raw.select_dtypes([object, 'category']).columns.tolist()
 
     date_activity = pd.to_datetime(activity_date)

@@ -466,7 +466,7 @@ def process_activity(df_raw):
     df_raw.reset_index(drop=True, inplace=True)
 
     # Supprimer les colonnes inutiles
-    df_raw.drop(columns=['vitesse_lissee','vitesse_km_h','distance_m','latlng','resting','outlier'], inplace=True)
+    df_raw.drop(columns=['vitesse_lissee', 'vitesse_km_h', 'distance_m', 'latlng', 'resting', 'outlier'], inplace=True)
     df_raw.dropna(axis='columns', how='all', inplace=True)
 
     return df_raw, km_effort_itra, km_effort_611, temps_total_formatte, ratio_denivele_distance

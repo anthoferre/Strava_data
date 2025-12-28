@@ -32,7 +32,6 @@ def get_format(feature, aggfunc):
     return 'd'
 
 
-@st.cache_data
 def crosstab(df, feature, aggfunc, vmin=None, vmax=None):
 
     fmt_heatmap = get_format(feature, aggfunc)

@@ -100,14 +100,14 @@ if 'df_raw' in st.session_state:
                     plot_vap_curve(absolute_best_dict)  # Si cette fonction trace une courbe simple
                 except NameError:
                     plot_vap_curve_comparative({
-                    f"Record Absolu ({sport_type})": absolute_best_dict
-                    }, title="Profil de Performance Absolu", sport_type=sport_type)
+                        f"Record Absolu ({sport_type})": absolute_best_dict
+                        }, title="Profil de Performance Absolu", sport_type=sport_type
+                    )
             else:
                 st.info(f"Aucun record VAP trouvé pour le sport '{sport_type}' dans l'historique.")
 
         else:
             st.info("La table de records de courbe est vide.")
-
 
     with st.container(border=True):
 
@@ -152,8 +152,6 @@ if 'df_raw' in st.session_state:
 
         else:
             st.info("Veuillez sélectionner au moins un mois.")
-
-
 
 else:
     st.warning("⚠️ Veuillez charger une activité via la page principale pour étudier ses courbes de record.")

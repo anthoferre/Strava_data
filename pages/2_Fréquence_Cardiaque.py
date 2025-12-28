@@ -50,7 +50,7 @@ if 'df_raw' in st.session_state:
             fig_hist = px.histogram(df_raw, x='frequence_cardiaque', color='zone_fc',
                                     title="Distribution de la Fréquence Cardiaque",
                                     color_discrete_sequence=px.colors.sequential.Oranges,
-                                    barmode='overlay',
+                                    barmode='relative',
                                     histnorm='percent',
                                     )
             fig_hist.update_layout(height=350, showlegend=False)
