@@ -1,10 +1,8 @@
 #Prédiction.py
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import streamlit as st
 
 from utils.data_processing import (calculate_all_records, fit_and_predict_time,
