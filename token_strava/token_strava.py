@@ -1,5 +1,3 @@
-import os
-import webbrowser
 from stravalib.client import Client
 
 # --- Étape 1 : Configuration et génération de l'URL d'autorisation ---
@@ -38,7 +36,7 @@ authorization_response = input("Collez l'URL complète ici : ")
 
 # Extraire le code d'autorisation de l'URL
 try:
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import parse_qs, urlparse
     parsed_url = urlparse(authorization_response)
     code = parse_qs(parsed_url.query)['code'][0]
     print("Code d'autorisation récupéré :", code)
